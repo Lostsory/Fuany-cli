@@ -33,7 +33,7 @@ MAX_FILE_CHARS = 8000  # 单篇预算（自定，非源码值）：本地小模�
             },
             "glob": {
                 "type": "string",
-                "description": "文件名过滤，如 *.py、*.md；默认 *.md",
+                "description": "文件名过滤，如 *.py、*.md、*.ts；不传则搜全部文件类型（推荐：除非你明确知道目标类型才填）",
             },
             "path": {
                 "type": "string",
@@ -44,8 +44,14 @@ MAX_FILE_CHARS = 8000  # 单篇预算（自定，非源码值）：本地小模�
     },
     read_only=True,
 )
-def grep(pattern: str, glob: str = "*.md", path: str = SEARCH_ROOT) -> str:
-    """调真 ripgrep。默认 files_with_matches（-l），和 GrepTool 默认一致。"""
+def grep(pattern: str, glob: str | None = None, path: str = SEARCH_ROOT) -> str:
+    """调真 ripgrep。默认 files_with_matches（-l），和 GrepTool 默认一致。
+
+    历史 bug:旧版 glob 默认 "*.md"(从原型 agent_search.py 搜 Obsidian 笔记
+    继承,没切回 coding 场景),LLM 不显式传 glob 时只搜 markdown,漏掉所有
+    .py/.ts 等源文件。LLM 自审 mini-cc 时抓出来,2026-05-20 修复:glob 真正
+    可选,不传则不加 --glob,rg 自动搜全部文件类型。
+    """
     args = [
         "rg",
         "--hidden",
@@ -54,11 +60,10 @@ def grep(pattern: str, glob: str = "*.md", path: str = SEARCH_ROOT) -> str:
         "!.git",
         "--max-columns",
         "500",
-        "--glob",
-        glob,
-        pattern,
-        path or SEARCH_ROOT,
     ]
+    if glob:
+        args.extend(["--glob", glob])
+    args.extend([pattern, path or SEARCH_ROOT])
     try:
         out = subprocess.run(args, capture_output=True, text=True, timeout=20)
     except subprocess.TimeoutExpired:
