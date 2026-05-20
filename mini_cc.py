@@ -45,9 +45,26 @@ def agent_answer(question: str, messages: list[ChatCompletionMessageParam]) -> s
     """agent 循环：调模型 ↔ 跑工具，多轮直到模型不再要工具。"""
     llm = build_llm()  # 需支持 function calling
     messages.append({"role": "user", "content": question})
+
+    # 本轮 token 记账,两套数都要:
+    #   billed_*  = 跨 step 累加,**= 这一轮被计费的总额**。
+    #               注意 multi-step 时每个 step 的 prompt 都全额包含 history,
+    #               所以累加值会远大于上下文长度 —— 这不是 bug,是 API
+    #               按"每次请求全额 prompt"计费的真相(无 prompt cache 时)。
+    #   last_prompt = 最后一次 step 的 prompt_tokens
+    #               **= 本轮结束时对话历史的真实长度(上下文窗口占用)**。
+    # 两个数同时打,把"计费账"和"上下文账"分清。
+    billed_prompt_tokens = 0
+    billed_completion_tokens = 0
+    last_prompt_tokens = 0
+
     for step in range(MAX_STEPS):
         stream = llm.client.chat.completions.create(
-            model=llm.model, messages=messages, tools=tools_schema(), stream=True
+            model=llm.model,
+            messages=messages,
+            tools=tools_schema(),
+            stream=True,
+            stream_options={"include_usage": True},
         )
 
         content_parts: list[str] = []
@@ -56,6 +73,15 @@ def agent_answer(question: str, messages: list[ChatCompletionMessageParam]) -> s
         seen_reasoning = False  # 用于在 reasoning → content 转场时插一次换行+💡 标识
 
         for chunk in stream:
+            # usage 帧在流的最后,choices=[] 不是模型说的话,是计费单。
+            # 先 capture 再判空,否则 chunk.choices[0] 会 IndexError。
+            if chunk.usage:
+                billed_prompt_tokens += chunk.usage.prompt_tokens
+                billed_completion_tokens += chunk.usage.completion_tokens
+                last_prompt_tokens = chunk.usage.prompt_tokens
+            if not chunk.choices:
+                continue
+
             delta = chunk.choices[0].delta
             # DeepSeek thinking-mode 契约：reasoning_content 必须 round-trip 回 history，
             # 否则下次请求 400 ("must be passed back to the API")。
@@ -117,6 +143,18 @@ def agent_answer(question: str, messages: list[ChatCompletionMessageParam]) -> s
             if full_reasoning:
                 assistant_msg["reasoning_content"] = full_reasoning
             messages.append(assistant_msg)
+            ctx_pct = last_prompt_tokens / llm.context_window * 100
+            ctx_max = (
+                f"{llm.context_window // 1_000_000}M"
+                if llm.context_window >= 1_000_000
+                else f"{llm.context_window // 1000}k"
+            )
+            print(
+                f"\n\033[90m[billed: in={billed_prompt_tokens} "
+                f"out={billed_completion_tokens} "
+                f"total={billed_prompt_tokens + billed_completion_tokens} "
+                f"| context: {last_prompt_tokens}/{ctx_max} ({ctx_pct:.1f}%)]\033[0m"
+            )
             return full_content or "（无回答）"
 
         # 把 LLM "要调工具"那条消息存回（响应 delta 拼成入参格式）
@@ -150,6 +188,12 @@ def agent_answer(question: str, messages: list[ChatCompletionMessageParam]) -> s
                 }
             )
 
+    print(
+        f"\n\033[90m[billed: in={billed_prompt_tokens} "
+        f"out={billed_completion_tokens} "
+        f"total={billed_prompt_tokens + billed_completion_tokens} "
+        f"| context: {last_prompt_tokens}]\033[0m"
+    )
     return "（达到最大步数仍未给出答案）"
 
 
