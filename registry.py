@@ -13,7 +13,7 @@
 from dataclasses import dataclass
 from typing import Callable
 
-from log import _log
+from log import log
 
 
 @dataclass(frozen=True)
@@ -85,15 +85,15 @@ def call_tool(name: str, args: dict) -> str:
 
     if name not in REGISTRY:
         ans = f"未知工具: {name}"
-        _log(name, args, ans, False)
+        log(name, args=args, result=ans, ok=False)
         return ans
 
     try:
         ans = REGISTRY[name].handler(**args)
     except TypeError as e:
         ans = f"工具 {name} 参数错误: {e}。请检查参数名后重试。"
-        _log(name, args, ans, False)
+        log(name, args=args, result=ans, ok=False)
         return ans
 
-    _log(name, args, ans, True)
+    log(name, args=args, result=ans, ok=True)
     return ans

@@ -5,7 +5,7 @@ from pathlib import Path
 LOG_FILE = Path(__file__).parent / "mini_cc.log"
 
 
-def _log(name: str, args: dict, result: str, ok: bool) -> None:
+def log(name: str, *, args: dict, result: str, ok: bool) -> None:
     entry = {
         "ts": datetime.now().isoformat(timespec="seconds"),
         "tool": name,
