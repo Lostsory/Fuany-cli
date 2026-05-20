@@ -11,8 +11,11 @@
 """
 
 import os
+import sys
 from dataclasses import dataclass
 from typing import Callable
+
+from openai.types.chat import ChatCompletionToolUnionParam
 
 from log import log
 
@@ -30,7 +33,7 @@ class Tool:
 
     name: str
     description: str
-    parameters: dict
+    parameters: dict[str, object]
     handler: Callable[..., str]
     read_only: bool = False
 
@@ -39,7 +42,13 @@ class Tool:
 REGISTRY: dict[str, Tool] = {}
 
 
-def register(name: str, description: str, parameters: dict, *, read_only: bool = False):
+def register(
+    name: str,
+    description: str,
+    parameters: dict[str, object],
+    *,
+    read_only: bool = False,
+):
     """装饰器：把被装饰函数构造成 Tool 塞进 REGISTRY，原函数原样返回。
 
     用法：
@@ -57,7 +66,7 @@ def register(name: str, description: str, parameters: dict, *, read_only: bool =
     return deco
 
 
-def tools_schema(allowed: set[str] | None = None) -> list[dict]:
+def tools_schema(allowed: set[str] | None = None) -> list[ChatCompletionToolUnionParam]:
     """从 REGISTRY 派生 OpenAI chat.completions 的 tools= 载荷。
 
     schema 从注册表派生，不手动维护第二份独立列表 —— 两份必漂移。
@@ -83,9 +92,18 @@ def _ask_permission(name: str, args: dict) -> bool:
     """side-effect 工具执行前问用户。返回 True = 允许;False = 拒绝。
 
     MINI_CC_AUTO_ALLOW 环境变量绕过(非交互测试用,默认不设)。
+
+    UX 关键:进 input() 前先 flush stdin —— 否则一轮里多个 parallel
+    tool_calls 顺序问的时候,用户在 prompt 出现前误按的 y 会被 tty
+    buffer 住,下一个 input() 直接消费,造成"按 y 没反应"的同步错位。
+    清空后,必须在看到 ⚠️ 之后按的 y 才算数。
     """
     if os.getenv("MINI_CC_AUTO_ALLOW"):
         return True
+
+    if sys.stdin.isatty():
+        import termios
+        termios.tcflush(sys.stdin, termios.TCIFLUSH)
 
     print(f"\n⚠️  agent 想执行: {name}({args})")
     return input("允许? [y/N] ").strip().lower() == "y"
