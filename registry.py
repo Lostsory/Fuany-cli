@@ -85,15 +85,15 @@ def call_tool(name: str, args: dict) -> str:
 
     if name not in REGISTRY:
         ans = f"未知工具: {name}"
-        log(name, args=args, result=ans, ok=False)
+        log(name, args=args, result=ans, dispatched=False)
         return ans
 
     try:
         ans = REGISTRY[name].handler(**args)
     except TypeError as e:
         ans = f"工具 {name} 参数错误: {e}。请检查参数名后重试。"
-        log(name, args=args, result=ans, ok=False)
+        log(name, args=args, result=ans, dispatched=False)
         return ans
 
-    log(name, args=args, result=ans, ok=True)
+    log(name, args=args, result=ans, dispatched=True)
     return ans
