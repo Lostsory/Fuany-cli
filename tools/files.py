@@ -11,6 +11,7 @@
 from pathlib import Path
 
 from registry import register
+from state import READ_STATE, FileSeen
 
 GLOB_LIMIT = 100
 SEARCH_ROOT = "."
@@ -35,11 +36,20 @@ SEARCH_ROOT = "."
     },
 )
 def write(path: str, content: str) -> str:
+    p = Path(path)
+    # mod-time + content 双比对（CC FileWriteTool 风格）
+    if str(p) in READ_STATE and p.exists():
+        seen = READ_STATE[str(p)]
+        if p.stat().st_mtime != seen.mtime:
+            if p.read_text(encoding="utf-8") != seen.content:
+                return f"文件已被外部修改自上次读取: {path}。请先 read_file 确认当前内容再写。"
+
     try:
-        Path(path).write_text(content, encoding="utf-8")
+        p.write_text(content, encoding="utf-8")
     except OSError as e:
         return f"写入失败: {str(e)}"
 
+    READ_STATE[str(p)] = FileSeen(mtime=p.stat().st_mtime, content=content)
     return f"已写入 {path} ({len(content)} 字符)"
 
 
@@ -79,6 +89,11 @@ def edit(path: str, old_string: str, new_string: str, replace_all: bool = False)
 
     text = p.read_text(encoding="utf-8")
 
+    if str(p) in READ_STATE:
+        seen = READ_STATE[str(p)]
+        if seen.mtime != p.stat().st_mtime and seen.content != text:
+            return f"文件已被外部修改自上次读取: {path}。请先 read_file 确认当前内容再编辑。"
+
     count = text.count(old_string)
 
     if count == 0:
@@ -92,6 +107,7 @@ def edit(path: str, old_string: str, new_string: str, replace_all: bool = False)
     except OSError as e:
         return f"写入失败: {str(e)}"
 
+    READ_STATE[str(p)] = FileSeen(mtime=p.stat().st_mtime, content=new_text)
     return f"已编辑 {path}（替换 {count} 处，共 {len(new_text)} 字符）"
 
 
@@ -114,6 +130,7 @@ def edit(path: str, old_string: str, new_string: str, replace_all: bool = False)
         },
         "required": ["pattern"],
     },
+    read_only=True,
 )
 def glob(pattern: str, path: str = SEARCH_ROOT) -> str:
     files = list(Path(path).glob(pattern))[:GLOB_LIMIT]

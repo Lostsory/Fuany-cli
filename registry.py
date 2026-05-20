@@ -10,6 +10,7 @@
 这里只留 allowed 参数的缝，D1 不实现过滤。
 """
 
+import os
 from dataclasses import dataclass
 from typing import Callable
 
@@ -24,19 +25,21 @@ class Tool:
     description : 给 LLM 看的说明（决定它会不会、怎么调）
     parameters  : JSON Schema 的 parameters 块（{"type":"object","properties":...}）
     handler     : 真正干活的函数，**args 解包调用，返回字符串
+    read_only   : 是否只读工具（不修改状态，只读取）
     """
 
     name: str
     description: str
     parameters: dict
     handler: Callable[..., str]
+    read_only: bool = False
 
 
 # 模块级单例。import 本模块即存在；各工具模块顶层 @register 往这里灌。
 REGISTRY: dict[str, Tool] = {}
 
 
-def register(name: str, description: str, parameters: dict):
+def register(name: str, description: str, parameters: dict, *, read_only: bool = False):
     """装饰器：把被装饰函数构造成 Tool 塞进 REGISTRY，原函数原样返回。
 
     用法：
@@ -48,7 +51,7 @@ def register(name: str, description: str, parameters: dict):
         # 没有插件热重载，让错误在import阶段就抛出
         if name in REGISTRY:
             raise ValueError(f"Tool {name} is already registered")
-        REGISTRY[name] = Tool(name, description, parameters, fn)
+        REGISTRY[name] = Tool(name, description, parameters, fn, read_only)
         return fn
 
     return deco
@@ -76,6 +79,18 @@ def tools_schema(allowed: set[str] | None = None) -> list[dict]:
     ]
 
 
+def _ask_permission(name: str, args: dict) -> bool:
+    """side-effect 工具执行前问用户。返回 True = 允许;False = 拒绝。
+
+    MINI_CC_AUTO_ALLOW 环境变量绕过(非交互测试用,默认不设)。
+    """
+    if os.getenv("MINI_CC_AUTO_ALLOW"):
+        return True
+
+    print(f"\n⚠️  agent 想执行: {name}({args})")
+    return input("允许? [y/N] ").strip().lower() == "y"
+
+
 def call_tool(name: str, args: dict) -> str:
     """按名字派发到 handler。LLM 可能塞 handler 不收的参数，不让它崩程序，
     把错误当字符串返回 → agent 循环把它当 tool_result 回喂、自我纠错。
@@ -88,8 +103,15 @@ def call_tool(name: str, args: dict) -> str:
         log(name, args=args, result=ans, dispatched=False)
         return ans
 
+    tool = REGISTRY[name]
+
+    if not tool.read_only and not _ask_permission(name, args):
+        ans = f"用户拒绝执行: {name}({args})"
+        log(name, args=args, result=ans, dispatched=False)
+        return ans
+
     try:
-        ans = REGISTRY[name].handler(**args)
+        ans = tool.handler(**args)
     except TypeError as e:
         ans = f"工具 {name} 参数错误: {e}。请检查参数名后重试。"
         log(name, args=args, result=ans, dispatched=False)

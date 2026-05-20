@@ -11,7 +11,8 @@ D1 任务在文件末尾：用 registry.register 把这两个函数声明成工�
 import subprocess
 from pathlib import Path
 
-from registry import register  # noqa: F401  # @register 用，D1 你来接
+from registry import register
+from state import READ_STATE, FileSeen
 
 # 默认搜 "运行 agent 的当前目录"（它是个 coding agent，搜的就是你跑它的那个仓库）。
 # 不写死任何绝对路径 —— 项目要能独立 clone 到任何机器就跑。
@@ -41,6 +42,7 @@ MAX_FILE_CHARS = 8000  # 单篇预算（自定，非源码值）：本地小模�
         },
         "required": ["pattern"],
     },
+    read_only=True,
 )
 def grep(pattern: str, glob: str = "*.md", path: str = SEARCH_ROOT) -> str:
     """调真 ripgrep。默认 files_with_matches（-l），和 GrepTool 默认一致。"""
@@ -78,6 +80,7 @@ def grep(pattern: str, glob: str = "*.md", path: str = SEARCH_ROOT) -> str:
         },
         "required": ["path"],
     },
+    read_only=True,
 )
 def read_file(path: str) -> str:
     """读整篇文件，带单篇预算截断。"""
@@ -85,6 +88,9 @@ def read_file(path: str) -> str:
     if not p.exists():
         return f"（文件不存在: {path}）"
     text = p.read_text(encoding="utf-8")
+
+    READ_STATE[str(p)] = FileSeen(mtime=p.stat().st_mtime, content=text)
+
     if len(text) > MAX_FILE_CHARS:
         text = text[:MAX_FILE_CHARS] + "\n…(已截断)"
     return text
