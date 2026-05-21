@@ -5,13 +5,15 @@
   - edit  ↔ src/tools/FileEditTool/FileEditTool.ts  —— 唯一匹配；replace_all 才允许多处
   - glob  ↔ src/tools/GlobTool/GlobTool.ts          —— pattern + 可选 path 的 glob
 
-权限/并发守卫属 D3，本最小版不做。
+权限门:registry.py call_tool 派发前调 _ask_permission。
+mod-time 守卫(D3 + D6 强化):write/edit 前比对 read_state 的 mtime+content
+防外部偷改;read_state 在 D6 改 ContextVar,每 agent 独立隔离。
 """
 
 from pathlib import Path
 
 from registry import register
-from state import READ_STATE, FileSeen
+from state import FileSeen, get_read_state
 
 GLOB_LIMIT = 100
 SEARCH_ROOT = "."
@@ -38,8 +40,11 @@ SEARCH_ROOT = "."
 def write(path: str, content: str) -> str:
     p = Path(path)
     # mod-time + content 双比对（CC FileWriteTool 风格）
-    if str(p) in READ_STATE and p.exists():
-        seen = READ_STATE[str(p)]
+    read_state = get_read_state()
+    if p.exists() and str(p) not in read_state:
+        return f"错误: 文件 {path} 已存在但未读过,必须先 read_file 才能覆盖。"
+    if str(p) in read_state:
+        seen = read_state[str(p)]
         if p.stat().st_mtime != seen.mtime:
             if p.read_text(encoding="utf-8") != seen.content:
                 return f"文件已被外部修改自上次读取: {path}。请先 read_file 确认当前内容再写。"
@@ -49,7 +54,7 @@ def write(path: str, content: str) -> str:
     except OSError as e:
         return f"写入失败: {str(e)}"
 
-    READ_STATE[str(p)] = FileSeen(mtime=p.stat().st_mtime, content=content)
+    read_state[str(p)] = FileSeen(mtime=p.stat().st_mtime, content=content)
     return f"已写入 {path} ({len(content)} 字符)"
 
 
@@ -89,10 +94,14 @@ def edit(path: str, old_string: str, new_string: str, replace_all: bool = False)
 
     text = p.read_text(encoding="utf-8")
 
-    if str(p) in READ_STATE:
-        seen = READ_STATE[str(p)]
-        if seen.mtime != p.stat().st_mtime and seen.content != text:
-            return f"文件已被外部修改自上次读取: {path}。请先 read_file 确认当前内容再编辑。"
+    read_state = get_read_state()
+    if str(p) not in read_state:
+        return f"错误: 必须先 read_file('{path}') 才能 edit。"  # ← 强守卫
+    seen = read_state[str(p)]
+    if seen.mtime != p.stat().st_mtime and seen.content != text:
+        return (
+            f"文件已被外部修改自上次读取: {path}。请先 read_file 确认当前内容再编辑。"
+        )
 
     count = text.count(old_string)
 
@@ -107,7 +116,7 @@ def edit(path: str, old_string: str, new_string: str, replace_all: bool = False)
     except OSError as e:
         return f"写入失败: {str(e)}"
 
-    READ_STATE[str(p)] = FileSeen(mtime=p.stat().st_mtime, content=new_text)
+    read_state[str(p)] = FileSeen(mtime=p.stat().st_mtime, content=new_text)
     return f"已编辑 {path}（替换 {count} 处，共 {len(new_text)} 字符）"
 
 

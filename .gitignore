@@ -5,3 +5,4 @@ __pycache__/
 *.db
 mini_cc.log
 .zed/
+demo/

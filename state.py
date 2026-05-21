@@ -12,6 +12,7 @@ Windows 上 cloud sync / 杀毒软件会触碰 mtime 但不改内容，纯 mtime
 false positive。我们 macOS 用不到，但保留这个工业级做法。
 """
 
+from contextvars import ContextVar
 from dataclasses import dataclass
 
 
@@ -23,4 +24,29 @@ class FileSeen:
     content: str
 
 
-READ_STATE: dict[str, FileSeen] = {}
+# 把 READ_STATE 从全局 dict → ContextVar。
+# 对照 CC forkedAgent.ts:376-417 createSubagentContext 的 readFileState 隔离:
+# CC 用深拷贝传 context 对象;Python 用 ContextVar 自动栈式隔离,nested set/reset 安全。
+_read_state_var: ContextVar[dict[str, FileSeen]] = ContextVar("read_state")
+
+
+def get_read_state() -> dict[str, FileSeen]:
+    """获取当前的 READ_STATE。"""
+    try:
+        return _read_state_var.get()
+    except LookupError:
+        # 首次访问时，ContextVar 未设置，触发 LookupError。
+        # 初始化一个空字典并设置到 ContextVar。
+        default: dict[str, FileSeen] = {}
+        _read_state_var.set(default)
+        return default
+
+
+def set_read_state(state: dict[str, FileSeen]):
+    """设置当前的 READ_STATE。"""
+    return _read_state_var.set(state)
+
+
+def reset_read_state(token):
+    """重置当前的 READ_STATE 到 token 对应的初始值。"""
+    _read_state_var.reset(token)

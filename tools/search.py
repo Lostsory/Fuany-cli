@@ -12,7 +12,7 @@ import subprocess
 from pathlib import Path
 
 from registry import register
-from state import READ_STATE, FileSeen
+from state import FileSeen, get_read_state
 
 # 默认搜 "运行 agent 的当前目录"（它是个 coding agent，搜的就是你跑它的那个仓库）。
 # 不写死任何绝对路径 —— 项目要能独立 clone 到任何机器就跑。
@@ -94,7 +94,7 @@ def read_file(path: str) -> str:
         return f"（文件不存在: {path}）"
     text = p.read_text(encoding="utf-8")
 
-    READ_STATE[str(p)] = FileSeen(mtime=p.stat().st_mtime, content=text)
+    get_read_state()[str(p)] = FileSeen(mtime=p.stat().st_mtime, content=text)
 
     if len(text) > MAX_FILE_CHARS:
         text = text[:MAX_FILE_CHARS] + "\n…(已截断)"

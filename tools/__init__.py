@@ -13,4 +13,5 @@ from . import (
     files,
     search,  # noqa: F401  # import 即注册，别删这行
     shell,
+    task,
 )
