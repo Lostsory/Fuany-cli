@@ -26,7 +26,7 @@ import tools  # noqa: F401  # import 即触发 tools/ 下所有 @register
 from config import DEFAULT_MAX_TURNS, SYSTEM
 from llm import build_llm
 from registry import call_tool, tools_schema
-from state import FileSeen, reset_read_state, set_read_state
+from state import FileSeen, reset_depth, reset_read_state, set_depth, set_read_state
 
 
 @dataclass(frozen=True)
@@ -119,12 +119,14 @@ def agent_answer(
     read_state: dict[str, FileSeen] | None = None,
     quiet: bool = False,
     allowed: set[str] | None = None,
+    depth: int = 0,
 ) -> TurnTerminal:
     """agent 循环：调模型 ↔ 跑工具，多轮直到模型不再要工具。"""
     # read_state 切换 + 出函数自动恢复(对照 CC forkedAgent.ts:376 状态隔离)
     if read_state is None:
         read_state = {}
     token = set_read_state(read_state)
+    d_token = set_depth(depth)
 
     out = (lambda *args, **kwargs: None) if quiet else print
 
@@ -345,6 +347,7 @@ def agent_answer(
         )
     finally:
         reset_read_state(token)
+        reset_depth(d_token)
 
 
 def main():

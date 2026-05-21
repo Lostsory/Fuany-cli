@@ -50,3 +50,21 @@ def set_read_state(state: dict[str, FileSeen]):
 def reset_read_state(token):
     """重置当前的 READ_STATE 到 token 对应的初始值。"""
     _read_state_var.reset(token)
+
+
+_depth_var: ContextVar[int] = ContextVar("depth", default=0)
+
+
+def get_depth() -> int:
+    """获取当前 agent 的递归深度。"""
+    return _depth_var.get()
+
+
+def set_depth(depth: int):
+    """设置当前 agent 的递归深度,返回 token 用于 reset。"""
+    return _depth_var.set(depth)
+
+
+def reset_depth(token):
+    """重置 depth 到 token 对应的上一层。"""
+    _depth_var.reset(token)

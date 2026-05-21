@@ -12,8 +12,14 @@ mini-cc 简化:
   - 子 agent 不允许调用 SUBAGENT_BLOCKED 中的工具
 """
 
-from config import DEFAULT_MAX_TURNS_SUBAGENT, SUBAGENT_BLOCKED, SUBAGENT_SYSTEM
+from config import (
+    DEFAULT_MAX_TURNS_SUBAGENT,
+    MAX_SUBAGENT_DEPTH,
+    SUBAGENT_BLOCKED,
+    SUBAGENT_SYSTEM,
+)
 from registry import REGISTRY, register
+from state import get_depth
 
 
 @register(
@@ -44,7 +50,16 @@ def task(description: str, prompt: str) -> str:
     """
     from mini_cc import agent_answer
 
-    print(f"\n  🛠️  spawn 子 agent: {description}")
+    cur_depth = get_depth()
+    child_depth = cur_depth + 1
+
+    if child_depth > MAX_SUBAGENT_DEPTH:
+        return (
+            f"错误: 已达最大递归深度 {MAX_SUBAGENT_DEPTH}(当前 depth={cur_depth}),"
+            f"不能再 spawn 子 agent。请基于已有信息完成任务,不要再调 task。"
+        )
+
+    print(f"\n  🛠️  spawn 子 agent (depth={child_depth}): {description}")
 
     # 子的工具集 = 全集 - blocked(对照 Hermes _strip_blocked_tools 减去 DELEGATE_BLOCKED_TOOLS)
     child_allowed: set[str] = set(REGISTRY.keys()) - SUBAGENT_BLOCKED
@@ -59,8 +74,9 @@ def task(description: str, prompt: str) -> str:
         read_state={},
         quiet=True,
         allowed=child_allowed,
+        depth=child_depth,
     )
 
-    print(f"  ✓ 子 agent 完成: {description}")
+    print(f"  ✓ 子 agent (depth={child_depth}) 完成: {description}")
 
     return terminal.content or "（子 agent 无回答）"
