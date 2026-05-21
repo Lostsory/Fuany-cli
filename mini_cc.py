@@ -118,6 +118,7 @@ def agent_answer(
     max_turns: int = DEFAULT_MAX_TURNS,
     read_state: dict[str, FileSeen] | None = None,
     quiet: bool = False,
+    allowed: set[str] | None = None,
 ) -> TurnTerminal:
     """agent 循环：调模型 ↔ 跑工具，多轮直到模型不再要工具。"""
     # read_state 切换 + 出函数自动恢复(对照 CC forkedAgent.ts:376 状态隔离)
@@ -168,7 +169,7 @@ def agent_answer(
                 stream = llm.client.chat.completions.create(
                     model=llm.model,
                     messages=messages,
-                    tools=tools_schema(),
+                    tools=tools_schema(allowed=allowed),
                     tool_choice="none" if grace_used else "auto",
                     stream=True,
                     stream_options={"include_usage": True},

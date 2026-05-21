@@ -37,6 +37,16 @@ AUTO_ALLOW: Final[bool] = os.getenv("MINI_CC_AUTO_ALLOW", "").lower() in (
 )
 """跳过权限门(CI / 非交互测试用,生产永不开)。"""
 
+# === 子 agent 安全边界 ===
+SUBAGENT_BLOCKED: Final[frozenset[str]] = frozenset({"task"})
+"""子 agent 不可访问的工具(硬编码 invariant)。
+
+对照 Hermes delegate_tool.py:44-53 DELEGATE_BLOCKED_TOOLS。
+当前只防 `task` 防递归 spawn —— D6-③ 加 depth limit 后可以再放宽,
+但 task 在 mini-cc 当前阶段永远不该出现在子的工具集。
+
+故意不走 env:这是安全 invariant,不该被用户随意修改。
+"""
 
 SYSTEM: Final[str] = (
     "你是一个交互式编码助手，帮用户做软件工程任务。"

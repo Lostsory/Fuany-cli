@@ -72,7 +72,6 @@ def tools_schema(allowed: set[str] | None = None) -> list[ChatCompletionToolUnio
     schema 从注册表派生，不手动维护第二份独立列表 —— 两份必漂移。
 
     allowed=None → 全部暴露（D1 行为）；allowed=集合 → 只暴露子集
-    （D6 subagent 用，D1 先不实现过滤，留这个参数别堵死）。
     """
 
     return [
@@ -85,6 +84,7 @@ def tools_schema(allowed: set[str] | None = None) -> list[ChatCompletionToolUnio
             },
         }
         for v in REGISTRY.values()
+        if allowed is None or v.name in allowed
     ]
 
 

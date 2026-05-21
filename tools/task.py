@@ -9,10 +9,11 @@ mini-cc 简化:
   - read_state 独立(ContextVar 栈式隔离)
   - quiet=True 静默子的中间过程
   - 子用 SUBAGENT_SYSTEM(对照 Hermes _build_child_system_prompt)
+  - 子 agent 不允许调用 SUBAGENT_BLOCKED 中的工具
 """
 
-from config import DEFAULT_MAX_TURNS_SUBAGENT, SUBAGENT_SYSTEM
-from registry import register
+from config import DEFAULT_MAX_TURNS_SUBAGENT, SUBAGENT_BLOCKED, SUBAGENT_SYSTEM
+from registry import REGISTRY, register
 
 
 @register(
@@ -45,6 +46,8 @@ def task(description: str, prompt: str) -> str:
 
     print(f"\n  🛠️  spawn 子 agent: {description}")
 
+    # 子的工具集 = 全集 - blocked(对照 Hermes _strip_blocked_tools 减去 DELEGATE_BLOCKED_TOOLS)
+    child_allowed: set[str] = set(REGISTRY.keys()) - SUBAGENT_BLOCKED
     sub_msgs: list = [
         {"role": "system", "content": SUBAGENT_SYSTEM},
     ]
@@ -55,6 +58,7 @@ def task(description: str, prompt: str) -> str:
         max_turns=DEFAULT_MAX_TURNS_SUBAGENT,
         read_state={},
         quiet=True,
+        allowed=child_allowed,
     )
 
     print(f"  ✓ 子 agent 完成: {description}")
