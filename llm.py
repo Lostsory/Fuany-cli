@@ -11,12 +11,12 @@
     把它俩捆死，物理上无法分家。
 """
 
-import os
 from dataclasses import dataclass
 from typing import Literal
 
-from dotenv import load_dotenv
 from openai import OpenAI
+
+from config import DEEPSEEK_API_KEY
 
 Provider = Literal["deepseek", "ollama"]
 
@@ -53,10 +53,9 @@ class LLM:
 
 def build_llm(provider: Provider = PROVIDER) -> LLM:
     """一次决策构造 LLM：deepseek 走云端（读 .env 的 key），ollama 走本地。"""
-    load_dotenv()
     cfg = _CONFIG[provider]
     # 本地 ollama 不校验 key，随便填；deepseek 从环境变量读
-    api_key = os.getenv("DEEPSEEK_API_KEY") if provider == "deepseek" else "ollama"
+    api_key = DEEPSEEK_API_KEY if provider == "deepseek" else "ollama"
     base_url = cfg["base_url"]
     model = cfg["model"]
     context_window = cfg["context_window"]

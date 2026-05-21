@@ -10,13 +10,13 @@
 这里只留 allowed 参数的缝，D1 不实现过滤。
 """
 
-import os
 import sys
 from dataclasses import dataclass
 from typing import Callable
 
 from openai.types.chat import ChatCompletionToolUnionParam
 
+from config import AUTO_ALLOW
 from log import log
 
 
@@ -98,11 +98,12 @@ def _ask_permission(name: str, args: dict) -> bool:
     buffer 住,下一个 input() 直接消费,造成"按 y 没反应"的同步错位。
     清空后,必须在看到 ⚠️ 之后按的 y 才算数。
     """
-    if os.getenv("MINI_CC_AUTO_ALLOW"):
+    if AUTO_ALLOW:
         return True
 
     if sys.stdin.isatty():
         import termios
+
         termios.tcflush(sys.stdin, termios.TCIFLUSH)
 
     print(f"\n⚠️  agent 想执行: {name}({args})")

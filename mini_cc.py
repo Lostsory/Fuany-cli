@@ -23,6 +23,7 @@ from openai.types.chat import (
 )
 
 import tools  # noqa: F401  # import 即触发 tools/ 下所有 @register
+from config import DEFAULT_MAX_TURNS
 from llm import build_llm
 from registry import call_tool, tools_schema
 
@@ -38,20 +39,14 @@ class TurnTerminal:
     content      : 给 main 看的最终文案,几乎总有
     turn_count   : 仅 max_turns 时有意义,= 撞顶时已跑的 turn 数
     limit_tokens : 仅 prompt_too_long 时有意义,从错误 message 解出来的 context 上限
+    grace_used   : 撞顶前是否注入了 wrap-up 提醒(Hermes grace call 机制)
     """
 
     reason: Literal["completed", "max_turns", "prompt_too_long"]
     content: str = ""
     turn_count: int = 0
     limit_tokens: int | None = None
-
-
-# 防失控逃生闸 = mini-cc 版的 CC `maxTurns`(query.ts L1705) / Hermes
-# `IterationBudget`(agent/iteration_budget.py)。**不是"魔法数,D5 会删"**
-# —— D5 recon 推翻了原计划:这两个范本都用迭代/turn 计数硬上限,主循环里
-# 没有 token 预算 terminal。真正的"自然终止" = 模型不再要工具(见 L141)。
-# 8 偏小,复杂多步任务(>4-5 个工具)会撞上,以后真要可调高,但别删。
-MAX_TURNS = 8
+    grace_used: bool = False
 
 
 # 对照 Hermes model_metadata.py:886-911 parse_context_limit_from_error。
@@ -109,7 +104,7 @@ def _finish(
     )
     match terminal.reason:
         case "completed":
-            extra = ""
+            extra = " (grace 收尾)" if terminal.grace_used else ""
         case "max_turns":
             extra = f" 超过最大轮数 {terminal.turn_count}"
         case "prompt_too_long":
@@ -126,7 +121,10 @@ def _finish(
 
 
 def agent_answer(
-    question: str, messages: list[ChatCompletionMessageParam]
+    question: str,
+    messages: list[ChatCompletionMessageParam],
+    *,
+    max_turns: int = DEFAULT_MAX_TURNS,
 ) -> TurnTerminal:
     """agent 循环：调模型 ↔ 跑工具，多轮直到模型不再要工具。"""
     llm = build_llm()  # 需支持 function calling
@@ -143,8 +141,21 @@ def agent_answer(
     billed_prompt_tokens = 0
     billed_completion_tokens = 0
     last_prompt_tokens = 0
+    grace_used = False
 
-    for turn in range(MAX_TURNS):
+    for turn in range(max_turns):
+        if turn == max_turns - 1:
+            grace_used = True
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "⚠️ 你的迭代预算即将耗尽,这是你的最后一个 turn。"
+                        "基于已有信息直接给最终回答,不要再调任何工具。"
+                        "即使信息不完整,也请尽力综合一个有用的回答。"
+                    ),
+                }
+            )
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
         tool_calls_accum: dict[int, dict[str, str]] = {}
@@ -154,6 +165,7 @@ def agent_answer(
                 model=llm.model,
                 messages=messages,
                 tools=tools_schema(),
+                tool_choice="none" if grace_used else "auto",
                 stream=True,
                 stream_options={"include_usage": True},
             )
@@ -239,6 +251,7 @@ def agent_answer(
                     reason="prompt_too_long",
                     content="（上下文超出窗口）",
                     limit_tokens=limit,
+                    grace_used=grace_used,
                 ),
                 billed_in=billed_prompt_tokens,
                 billed_out=billed_completion_tokens,
@@ -268,7 +281,11 @@ def agent_answer(
                 assistant_msg["reasoning_content"] = full_reasoning
             messages.append(assistant_msg)
             return _finish(
-                TurnTerminal(reason="completed", content=full_content or "（无回答）"),
+                TurnTerminal(
+                    reason="completed",
+                    content=full_content or "（无回答）",
+                    grace_used=grace_used,
+                ),
                 billed_in=billed_prompt_tokens,
                 billed_out=billed_completion_tokens,
                 last_prompt=last_prompt_tokens,
@@ -310,7 +327,8 @@ def agent_answer(
         TurnTerminal(
             reason="max_turns",
             content="（达到最大步数仍未给出答案）",
-            turn_count=MAX_TURNS,
+            turn_count=max_turns,
+            grace_used=grace_used,
         ),
         billed_in=billed_prompt_tokens,
         billed_out=billed_completion_tokens,
