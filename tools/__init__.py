@@ -15,4 +15,5 @@ from . import (
     shell,
     skill,
     task,
+    web,
 )

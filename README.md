@@ -91,6 +91,8 @@ agent_answer()  ── 核心循环(对照 CC src/query.ts queryLoop)
 | 递归 depth limit | `tools/task.py` | Hermes `delegate_tool.py` `max_spawn_depth` |
 | partition 并发调度 | `mini_cc.py` `_partition_tool_calls` | CC `toolOrchestration.ts` partitionToolCalls |
 | skill 渐进披露 | `skills.py` + `tools/skill.py` | CC `loadSkillsDir.ts` · `SkillTool.ts`(listing 进 prompt + 全文按需 load) |
+| web_search | `tools/web.py` | Brave API(CC WebSearch 是 Anthropic server-tool,DeepSeek 走客户端调 API) |
+| web_fetch(抓取+提炼+LRU 缓存+分页) | `tools/web.py` + `cache.py` | CC `WebFetchTool`(**改进**:CC 截断后无读取手段,加 offset 翻页补救) |
 
 ---
 
