@@ -223,14 +223,14 @@ def agent_answer(
                     if isinstance(reasoning, str) and reasoning:
                         if SHOW_THINKING:
                             if not seen_reasoning:
-                                out("\033[90m[思考] \033[0m", end="", flush=True)
+                                out("\n\033[90m[思考] \033[0m", end="", flush=True)
                                 seen_reasoning = True
                             out(f"\033[90m{reasoning}\033[0m", end="", flush=True)
                         reasoning_parts.append(reasoning)
 
                     if delta.content:
-                        if seen_reasoning:
-                            out("\n[回答] ", end="", flush=True)
+                        if not content_parts:  # content 第一次 → 打 [回答](独立于思考显不显示)
+                            out("\n\033[32m[回答]\033[0m ", end="", flush=True)
                             seen_reasoning = False
                         content_parts.append(delta.content)
                         out(delta.content, end="", flush=True)
@@ -338,9 +338,10 @@ def agent_answer(
                 assistant_msg["reasoning_content"] = full_reasoning
             messages.append(assistant_msg)
 
-            # 流式 reasoning/content 没有自带换行，[turn N] 直接贴上来视觉乱。
-            # 这里(仅在有工具调用时)补一次换行；final answer 那条路径交给 main 处理。
+            # 流式 reasoning/content 没自带换行,补一次换行 + 打本 turn 标记(单独一行,
+            # 该 turn 的多个 tool 不再各自重复 [turn N])。final answer 路径交给 main。
             out()
+            out(f"\033[1;36m[turn {turn}]\033[0m")
 
             for is_parallel, batch in _partition_tool_calls(tool_calls):
                 if is_parallel and len(batch) > 1:
@@ -349,7 +350,7 @@ def agent_answer(
                         for tc in batch:
                             name = tc["function"]["name"]
                             args = json.loads(tc["function"]["arguments"])
-                            out(f"  \033[1;36m[turn {turn}] {name}\033[0m({args})")
+                            out(f"    \033[36m{name}\033[0m({args})")
                             ctx = copy_context()
                             futures[tc["id"]] = executor.submit(
                                 ctx.run, call_tool, name, args
@@ -367,7 +368,7 @@ def agent_answer(
                     for tc in batch:
                         name = tc["function"]["name"]
                         args = json.loads(tc["function"]["arguments"])
-                        out(f"  \033[1;36m[turn {turn}] {name}\033[0m({args})")
+                        out(f"    \033[36m{name}\033[0m({args})")
                         result = call_tool(name, args)
                         messages.append(
                             {
