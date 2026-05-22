@@ -28,6 +28,7 @@ import tools  # noqa: F401  # import 即触发 tools/ 下所有 @register
 from config import DEFAULT_MAX_TURNS, MAX_PARALLEL, SYSTEM
 from llm import build_llm
 from registry import call_tool, is_read_only, tools_schema
+from skills import skill_reminder
 from state import FileSeen, reset_depth, reset_read_state, set_depth, set_read_state
 
 
@@ -184,11 +185,18 @@ def agent_answer(
             seen_reasoning = (
                 False  # 用于在 reasoning → content 转场时插一次换行+💡 标识
             )
-
+            reminder = skill_reminder()
+            request_messages = messages
+            if reminder and messages and messages[0]["role"] == "system":
+                sys0 = messages[0]
+                request_messages = [
+                    {**sys0, "content": f"{sys0['content']}\n\n{reminder}"},
+                    *messages[1:],
+                ]
             try:
                 stream = llm.client.chat.completions.create(
                     model=llm.model,
-                    messages=messages,
+                    messages=request_messages,
                     tools=tools_schema(allowed=allowed),
                     tool_choice="none" if grace_used else "auto",
                     stream=True,

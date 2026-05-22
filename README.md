@@ -90,6 +90,7 @@ agent_answer()  ── 核心循环(对照 CC src/query.ts queryLoop)
 | 工具子集过滤(防递归) | `registry.py` `tools_schema(allowed=)` | Hermes `DELEGATE_BLOCKED_TOOLS` |
 | 递归 depth limit | `tools/task.py` | Hermes `delegate_tool.py` `max_spawn_depth` |
 | partition 并发调度 | `mini_cc.py` `_partition_tool_calls` | CC `toolOrchestration.ts` partitionToolCalls |
+| skill 渐进披露 | `skills.py` + `tools/skill.py` | CC `loadSkillsDir.ts` · `SkillTool.ts`(listing 进 prompt + 全文按需 load) |
 
 ---
 
@@ -111,8 +112,11 @@ agent_answer()  ── 核心循环(对照 CC src/query.ts queryLoop)
 
 - **MCP**(真协议,最重,这类玩具项目十有八九死在这里)
 - **真上下文压缩 / microcompact**(1M context 窗口下当前用不到)
-- **skill 系统**(SKILL.md 渐进披露)/ **TUI**(Ink 等富终端)/ **插件系统**
+- **skill 自改进(Hermes Curator)** —— agent 给自己写 skill + 后台合并;体量是 skill 本身 5-10 倍,留作独立项目
+- **TUI**(Ink 等富终端)/ **插件系统**
 - **多 provider gateway · cron · kanban · profile 隔离 · 会话持久化**
+
+> 注:skill **渐进披露**已实现(见上方特性表);不做的是 Hermes 式 **Curator 自改进**(那是另一个量级)。
 
 这些不是"不会做",是"做了会偏离核心、且不增加对 agent 本质的理解"。
 

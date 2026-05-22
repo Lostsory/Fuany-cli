@@ -9,6 +9,7 @@
 """
 
 import os
+from pathlib import Path
 from typing import Final
 
 from dotenv import load_dotenv
@@ -88,3 +89,7 @@ MAX_PARALLEL: Final[int] = int(os.getenv("MINI_CC_MAX_PARALLEL", "10"))
 对照 CC toolOrchestration.ts:8 CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY(默认 10)。
 mini-cc 默认 5:本地够用,防一 turn 几十个 task 撑爆线程。
 """
+
+
+SKILL_DIR: Final[Path] = Path(os.getenv("MINI_CC_SKILL_DIR", "skills"))
+"""skill 目录。每个 skill = skills/<name>/SKILL.md(对照 CC ~/.claude/skills)。"""
