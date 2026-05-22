@@ -25,7 +25,7 @@ from openai.types.chat import (
 )
 
 import tools  # noqa: F401  # import 即触发 tools/ 下所有 @register
-from config import DEFAULT_MAX_TURNS, MAX_PARALLEL, SYSTEM
+from config import DEFAULT_MAX_TURNS, MAX_PARALLEL, SHOW_THINKING, SYSTEM
 from llm import build_llm
 from registry import call_tool, is_read_only, tools_schema
 from skills import skill_reminder
@@ -173,7 +173,7 @@ def agent_answer(
                     {
                         "role": "user",
                         "content": (
-                            "⚠️ 你的迭代预算即将耗尽,这是你的最后一个 turn。"
+                            "[提醒] 你的迭代预算即将耗尽,这是你的最后一个 turn。"
                             "基于已有信息直接给最终回答,不要再调任何工具。"
                             "即使信息不完整,也请尽力综合一个有用的回答。"
                         ),
@@ -183,7 +183,7 @@ def agent_answer(
             reasoning_parts: list[str] = []
             tool_calls_accum: dict[int, dict[str, str]] = {}
             seen_reasoning = (
-                False  # 用于在 reasoning → content 转场时插一次换行+💡 标识
+                False  # 用于在 reasoning → content 转场时插一次换行+ [回答]
             )
             reminder = skill_reminder()
             request_messages = messages
@@ -221,15 +221,16 @@ def agent_answer(
                     # isinstance 是它认的唯一 narrowing 形式。
                     reasoning = getattr(delta, "reasoning_content", None)
                     if isinstance(reasoning, str) and reasoning:
-                        if not seen_reasoning:
-                            out("🧠 ", end="", flush=True)
-                            seen_reasoning = True
-                        out(f"\033[90m{reasoning}\033[0m", end="", flush=True)
+                        if SHOW_THINKING:
+                            if not seen_reasoning:
+                                out("\033[90m[思考] \033[0m", end="", flush=True)
+                                seen_reasoning = True
+                            out(f"\033[90m{reasoning}\033[0m", end="", flush=True)
                         reasoning_parts.append(reasoning)
 
                     if delta.content:
                         if seen_reasoning:
-                            out("\n💡 ", end="", flush=True)
+                            out("\n[回答] ", end="", flush=True)
                             seen_reasoning = False
                         content_parts.append(delta.content)
                         out(delta.content, end="", flush=True)
@@ -348,7 +349,7 @@ def agent_answer(
                         for tc in batch:
                             name = tc["function"]["name"]
                             args = json.loads(tc["function"]["arguments"])
-                            out(f"  [turn {turn}] {name}({args})")
+                            out(f"  \033[1;36m[turn {turn}] {name}\033[0m({args})")
                             ctx = copy_context()
                             futures[tc["id"]] = executor.submit(
                                 ctx.run, call_tool, name, args
@@ -366,7 +367,7 @@ def agent_answer(
                     for tc in batch:
                         name = tc["function"]["name"]
                         args = json.loads(tc["function"]["arguments"])
-                        out(f"  [turn {turn}] {name}({args})")
+                        out(f"  \033[1;36m[turn {turn}] {name}\033[0m({args})")
                         result = call_tool(name, args)
                         messages.append(
                             {

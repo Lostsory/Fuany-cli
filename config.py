@@ -95,3 +95,15 @@ SKILL_DIR: Final[Path] = Path(os.getenv("MINI_CC_SKILL_DIR", "skills"))
 """skill 目录。每个 skill = skills/<name>/SKILL.md(对照 CC ~/.claude/skills)。"""
 
 BRAVE_SEARCH_API_KEY: Final[str | None] = os.getenv("MINI_CC_BRAVE_SEARCH_API_KEY")
+
+SHOW_THINKING: Final[bool] = os.getenv("MINI_CC_SHOW_THINKING", "False").lower() in (
+    "1",
+    "true",
+    "yes",
+)
+"""是否在终端打印 [思考](reasoning)。默认 false。
+
+关闭只是【不显示】—— reasoning 仍生成 + round-trip 回 history(DeepSeek
+契约必须,见 D4)。这跟"关 thinking mode"(extra_body 让模型不生成
+reasoning)不同:那个省 token 但降质,本开关只管显不显示。
+"""

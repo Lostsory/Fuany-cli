@@ -64,7 +64,7 @@ def task(description: str, prompt: str) -> str:
             f"不能再 spawn 子 agent。请基于已有信息完成任务,不要再调 task。"
         )
 
-    print(f"\n  🛠️  spawn 子 agent (depth={child_depth}): {description}")
+    print(f"\n  [委派] 子 agent (depth={child_depth}): {description}")
 
     # 子的工具集 = 全集 - blocked(对照 Hermes _strip_blocked_tools 减去 DELEGATE_BLOCKED_TOOLS)
     child_allowed: set[str] = set(REGISTRY.keys()) - SUBAGENT_BLOCKED
@@ -82,6 +82,6 @@ def task(description: str, prompt: str) -> str:
         depth=child_depth,
     )
 
-    print(f"  ✓ 子 agent (depth={child_depth}) 完成: {description}")
+    print(f"  [完成] 子 agent (depth={child_depth}): {description}")
 
     return terminal.content or "（子 agent 无回答）"

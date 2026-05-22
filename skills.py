@@ -9,7 +9,6 @@ mini-cc 简化:手写 frontmatter 解析(不引 pyyaml,字段简单)。
 """
 
 from dataclasses import dataclass
-from functools import cache
 
 from config import SKILL_DIR
 
@@ -45,26 +44,42 @@ def _parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
     return fm, parts[2].strip()
 
 
-@cache
+_cache: tuple[Skill, ...] | None = None
+_cache_fingerprint: frozenset[tuple[str, float]] = frozenset()
+
+
 def discover_skills() -> tuple[Skill, ...]:
-    """扫描 SKILLS_DIR,解析每个 <name>/SKILL.md。@cache:扫一次缓存。"""
+    """扫描 SKILL_DIR,解析每个 <name>/SKILL.md(渐进披露 Layer 1 的数据源)。
+
+    内存缓存 + 文件指纹失效(对照 Hermes 缓存层):指纹 = 所有 SKILL.md 的
+    (路径, mtime) 集合,加/删/改任一种 → 指纹变 → 重扫,否则用缓存。
+    比 @cache 强:能感知运行时新增/修改 skill。
+    """
+
+    global _cache, _cache_fingerprint
     if not SKILL_DIR.is_dir():
         return ()
 
+    md_files = sorted(SKILL_DIR.rglob("SKILL.md"))
+
+    fingerprint = frozenset((str(p), p.stat().st_mtime) for p in md_files)
+
+    if _cache is not None and fingerprint == _cache_fingerprint:
+        return _cache
+
     skills = []
-    for sub in sorted(SKILL_DIR.iterdir()):
-        md = sub / "SKILL.md"
-        if not md.is_file():
-            continue
+    for md in md_files:
         fm, body = _parse_frontmatter(md.read_text(encoding="utf-8"))
         skills.append(
             Skill(
-                name=fm.get("name", sub.name),
+                name=fm.get("name", md.parent.name),  # ← md.parent.name = <name> 目录名
                 description=fm.get("description", ""),
                 body=body,
             )
         )
-    return tuple(skills)
+    _cache = tuple(skills)
+    _cache_fingerprint = fingerprint
+    return _cache
 
 
 def skill_reminder() -> str | None:

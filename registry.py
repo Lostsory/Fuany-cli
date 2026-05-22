@@ -105,7 +105,7 @@ def _ask_permission(name: str, args: dict) -> bool:
     UX 关键:进 input() 前先 flush stdin —— 否则一轮里多个 parallel
     tool_calls 顺序问的时候,用户在 prompt 出现前误按的 y 会被 tty
     buffer 住,下一个 input() 直接消费,造成"按 y 没反应"的同步错位。
-    清空后,必须在看到 ⚠️ 之后按的 y 才算数。
+    清空后,必须在看到 [需确认] 之后按的 y 才算数。
     """
     if AUTO_ALLOW:
         return True
@@ -116,8 +116,8 @@ def _ask_permission(name: str, args: dict) -> bool:
 
             termios.tcflush(sys.stdin, termios.TCIFLUSH)
 
-    print(f"\n⚠️  agent 想执行: {name}({args})")
-    return input("允许? [y/N] ").strip().lower() == "y"
+        print(f"\n[需确认] agent 想执行: {name}({args})")
+        return input("允许? [y/N] ").strip().lower() == "y"
 
 
 def is_read_only(name: str) -> bool:
