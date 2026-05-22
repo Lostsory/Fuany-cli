@@ -13,6 +13,8 @@
 import json
 import re
 import readline  # noqa: F401  # 副作用导入：给 input() 接上 line-editing 后端，让中文/方向键/历史都能用
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from dataclasses import dataclass
 from typing import Literal, cast
 
@@ -23,10 +25,26 @@ from openai.types.chat import (
 )
 
 import tools  # noqa: F401  # import 即触发 tools/ 下所有 @register
-from config import DEFAULT_MAX_TURNS, SYSTEM
+from config import DEFAULT_MAX_TURNS, MAX_PARALLEL, SYSTEM
 from llm import build_llm
-from registry import call_tool, tools_schema
+from registry import call_tool, is_read_only, tools_schema
 from state import FileSeen, reset_depth, reset_read_state, set_depth, set_read_state
+
+
+def _partition_tool_calls(tool_calls: list) -> list[tuple[bool, list]]:
+    """按 read_only 分区:连续 read_only → 并行 batch,写工具 → 单独串行 batch。
+
+    对照 CC toolOrchestration.ts:91 partitionToolCalls。
+    返回 [(is_parallel, [tc, ...]), ...],原顺序保留。
+    """
+    batches: list[tuple[bool, list]] = []
+    for tc in tool_calls:
+        ro = is_read_only(tc["function"]["name"])
+        if ro and batches and batches[-1][0]:
+            batches[-1][1].append(tc)
+        else:
+            batches.append((ro, [tc]))
+    return batches
 
 
 @dataclass(frozen=True)
@@ -315,22 +333,40 @@ def agent_answer(
             # 这里(仅在有工具调用时)补一次换行；final answer 那条路径交给 main 处理。
             out()
 
-            for tc in tool_calls:
-                if tc["type"] != "function":
-                    continue
-                name = tc["function"]["name"]
-                args = json.loads(tc["function"]["arguments"])
-                out(f"  [turn {turn}] {name}({args})")
-
-                result = call_tool(name, args)
-
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tc["id"],
-                        "content": str(result),
-                    }
-                )
+            for is_parallel, batch in _partition_tool_calls(tool_calls):
+                if is_parallel and len(batch) > 1:
+                    with ThreadPoolExecutor(max_workers=MAX_PARALLEL) as executor:
+                        futures = {}
+                        for tc in batch:
+                            name = tc["function"]["name"]
+                            args = json.loads(tc["function"]["arguments"])
+                            out(f"  [turn {turn}] {name}({args})")
+                            ctx = copy_context()
+                            futures[tc["id"]] = executor.submit(
+                                ctx.run, call_tool, name, args
+                            )
+                        for tc in batch:
+                            result = futures[tc["id"]].result()
+                            messages.append(
+                                {
+                                    "role": "tool",
+                                    "tool_call_id": tc["id"],
+                                    "content": str(result),
+                                }
+                            )
+                else:
+                    for tc in batch:
+                        name = tc["function"]["name"]
+                        args = json.loads(tc["function"]["arguments"])
+                        out(f"  [turn {turn}] {name}({args})")
+                        result = call_tool(name, args)
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tc["id"],
+                                "content": str(result),
+                            }
+                        )
 
         return _finish(
             TurnTerminal(

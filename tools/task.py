@@ -22,6 +22,11 @@ from registry import REGISTRY, register
 from state import get_depth
 
 
+# read_only=True 对照 CC AgentTool.tsx:1264 isReadOnly()——
+# task 本身不直接改东西,权限检查"下放给子 agent 内部的工具"
+# (子的 write/edit/bash 各自弹权限门)。这让:
+#   1. 委派动作本身不弹权限门(用户批准的是子的实际操作)
+#   2. task 归入"并发安全"批,多个 task 可并行 spawn
 @register(
     "task",
     "委派一个子 agent 执行明确的子任务。用于:深度调研、多文件分析、独立子流程。"
@@ -40,7 +45,7 @@ from state import get_depth
         },
         "required": ["description", "prompt"],
     },
-    read_only=False,
+    read_only=True,
 )
 def task(description: str, prompt: str) -> str:
     """spawn 子 agent 执行委派任务,返回 final content。

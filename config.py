@@ -48,7 +48,7 @@ tools/task.py 内的 depth 守卫接管(深度超阈值返回错误,模型自愈
 故意不走 env:这是安全 invariant 边界,未来添加 blocked 工具时在此显式加。
 """
 
-#
+# === 子 agent 安全边界 ===
 MAX_SUBAGENT_DEPTH: Final[int] = int(os.getenv("MINI_CC_MAX_SUBAGENT_DEPTH", "2"))
 
 SYSTEM: Final[str] = (
@@ -80,3 +80,11 @@ SUBAGENT_SYSTEM: Final[str] = (
     "- 完成时输出一段总结,**不要继续调工具**。\n"
     "- 不要做超出请求范围的改进。"
 )
+
+# === 并发数 ===
+MAX_PARALLEL: Final[int] = int(os.getenv("MINI_CC_MAX_PARALLEL", "10"))
+"""并行执行 read_only 工具(含 task)的最大并发数。
+
+对照 CC toolOrchestration.ts:8 CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY(默认 10)。
+mini-cc 默认 5:本地够用,防一 turn 几十个 task 撑爆线程。
+"""

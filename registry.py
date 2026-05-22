@@ -11,6 +11,7 @@
 """
 
 import sys
+import threading
 from dataclasses import dataclass
 from typing import Callable
 
@@ -88,6 +89,14 @@ def tools_schema(allowed: set[str] | None = None) -> list[ChatCompletionToolUnio
     ]
 
 
+_permission_lock = threading.Lock()
+"""并发子 agent 内部的写工具权限门串行化锁。
+
+D6-④ 并行 spawn 后,多个子 agent 可能同时调 write/bash 触发权限门,
+input() 撞 stdin。Lock 让权限弹窗排队(同时只一个),用户依次答 y/N。
+"""
+
+
 def _ask_permission(name: str, args: dict) -> bool:
     """side-effect 工具执行前问用户。返回 True = 允许;False = 拒绝。
 
@@ -101,13 +110,21 @@ def _ask_permission(name: str, args: dict) -> bool:
     if AUTO_ALLOW:
         return True
 
-    if sys.stdin.isatty():
-        import termios
+    with _permission_lock:
+        if sys.stdin.isatty():
+            import termios
 
-        termios.tcflush(sys.stdin, termios.TCIFLUSH)
+            termios.tcflush(sys.stdin, termios.TCIFLUSH)
 
     print(f"\n⚠️  agent 想执行: {name}({args})")
     return input("允许? [y/N] ").strip().lower() == "y"
+
+
+def is_read_only(name: str) -> bool:
+    """返回工具是否只读(不要求用户确认执行)。"""
+    if name not in REGISTRY:
+        return False
+    return REGISTRY[name].read_only
 
 
 def call_tool(name: str, args: dict) -> str:
