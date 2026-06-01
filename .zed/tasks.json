@@ -1,0 +1,47 @@
+[
+  {
+    "label": "Python: uv sync",
+    "command": "uv",
+    "args": ["sync"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "on_success",
+    "save": "all"
+  },
+  {
+    "label": "Python: run fuany",
+    "command": "uv",
+    "args": ["run", "fuany"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "save": "all"
+  },
+  {
+    "label": "Python: run current file",
+    "command": "uv",
+    "args": ["run", "python", "$ZED_FILE"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "save": "current"
+  },
+  {
+    "label": "Python: compile all",
+    "command": "uv",
+    "args": [
+      "run",
+      "python",
+      "-m",
+      "compileall",
+      "-q",
+      "-x",
+      "(^|/)(.venv|.git|__pycache__)(/|$)",
+      "."
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "on_success",
+    "save": "all"
+  }
+]

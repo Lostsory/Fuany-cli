@@ -3,6 +3,7 @@
 __pycache__/
 *.pyc
 *.db
+*.egg-info/
 mini_cc.log
-.zed/
 demo/
+skills/

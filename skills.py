@@ -67,7 +67,7 @@ def discover_skills() -> tuple[Skill, ...]:
     if _cache is not None and fingerprint == _cache_fingerprint:
         return _cache
 
-    skills = []
+    skills: list[Skill] = []
     for md in md_files:
         fm, body = _parse_frontmatter(md.read_text(encoding="utf-8"))
         skills.append(

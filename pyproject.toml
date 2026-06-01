@@ -1,5 +1,5 @@
 [project]
-name = "mini-claude-code"
+name = "fuany-cli"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -10,3 +10,23 @@ dependencies = [
     "openai>=2.37.0",
     "python-dotenv>=1.2.2",
 ]
+
+[project.scripts]
+fuany = "mini_cc:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = [
+    "cache",
+    "config",
+    "llm",
+    "log",
+    "mini_cc",
+    "registry",
+    "skills",
+    "state",
+]
+packages = ["tools"]

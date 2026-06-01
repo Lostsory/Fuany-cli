@@ -229,7 +229,9 @@ def agent_answer(
                         reasoning_parts.append(reasoning)
 
                     if delta.content:
-                        if not content_parts:  # content 第一次 → 打 [回答](独立于思考显不显示)
+                        if (
+                            not content_parts
+                        ):  # content 第一次 → 打 [回答](独立于思考显不显示)
                             out("\n\033[32m[回答]\033[0m ", end="", flush=True)
                             seen_reasoning = False
                         content_parts.append(delta.content)
