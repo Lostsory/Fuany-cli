@@ -31,14 +31,17 @@ from registry import call_tool, is_read_only, tools_schema
 from skills import skill_reminder
 from state import FileSeen, reset_depth, reset_read_state, set_depth, set_read_state
 
+ToolCallParam = ChatCompletionMessageFunctionToolCallParam
+ToolCallBatch = tuple[bool, list[ToolCallParam]]
 
-def _partition_tool_calls(tool_calls: list) -> list[tuple[bool, list]]:
+
+def _partition_tool_calls(tool_calls: list[ToolCallParam]) -> list[ToolCallBatch]:
     """按 read_only 分区:连续 read_only → 并行 batch,写工具 → 单独串行 batch。
 
     对照 CC toolOrchestration.ts:91 partitionToolCalls。
     返回 [(is_parallel, [tc, ...]), ...],原顺序保留。
     """
-    batches: list[tuple[bool, list]] = []
+    batches: list[ToolCallBatch] = []
     for tc in tool_calls:
         ro = is_read_only(tc["function"]["name"])
         if ro and batches and batches[-1][0]:
@@ -313,7 +316,10 @@ def agent_answer(
                 for _, tc in sorted(tool_calls_accum.items())
             ]
             if not tool_calls:
-                assistant_msg: dict = {"role": "assistant", "content": full_content}
+                assistant_msg: ChatCompletionMessageParam = {
+                    "role": "assistant",
+                    "content": full_content,
+                }
                 if full_reasoning:
                     assistant_msg["reasoning_content"] = full_reasoning
                 messages.append(assistant_msg)
@@ -331,7 +337,7 @@ def agent_answer(
                 )
 
             # 把 LLM "要调工具"那条消息存回（响应 delta 拼成入参格式）
-            assistant_msg: dict = {
+            assistant_msg: ChatCompletionMessageParam = {
                 "role": "assistant",
                 "content": full_content or None,
                 "tool_calls": tool_calls,

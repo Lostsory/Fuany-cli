@@ -30,3 +30,9 @@ py-modules = [
     "state",
 ]
 packages = ["tools"]
+
+[dependency-groups]
+dev = [
+    "basedpyright>=1.39.6",
+    "ruff>=0.15.16",
+]
