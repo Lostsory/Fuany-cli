@@ -465,6 +465,9 @@ def agent_answer(
     finally:
         reset_read_state(token)
         reset_depth(d_token)
+        if depth > 0:
+            # 子 agent 退出后释放记录；主 agent 的会话字典留给调用方复用。
+            read_state.clear()
 
 
 def main():

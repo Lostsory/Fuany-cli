@@ -12,7 +12,7 @@ import subprocess
 from pathlib import Path
 
 from registry import register
-from state import FileSeen, get_read_state
+from state import FileSeen, get_read_state, hash_content
 
 # 默认搜 "运行 agent 的当前目录"（它是个 coding agent，搜的就是你跑它的那个仓库）。
 # 不写死任何绝对路径 —— 项目要能独立 clone 到任何机器就跑。
@@ -68,7 +68,7 @@ def grep(pattern: str, glob: str | None = None, path: str = SEARCH_ROOT) -> str:
         out = subprocess.run(args, capture_output=True, text=True, timeout=20)
     except subprocess.TimeoutExpired:
         return "（ripgrep 超时）"
-    files = [l for l in out.stdout.splitlines() if l.strip()][:HEAD_LIMIT]
+    files = [line for line in out.stdout.splitlines() if line.strip()][:HEAD_LIMIT]
     return "\n".join(files) if files else "（无匹配文件）"
 
 
@@ -94,7 +94,9 @@ def read_file(path: str) -> str:
         return f"（文件不存在: {path}）"
     text = p.read_text(encoding="utf-8")
 
-    get_read_state()[str(p)] = FileSeen(mtime=p.stat().st_mtime, content=text)
+    get_read_state()[str(p)] = FileSeen(
+        mtime=p.stat().st_mtime, content_hash=hash_content(text)
+    )
 
     if len(text) > MAX_FILE_CHARS:
         text = text[:MAX_FILE_CHARS] + "\n…(已截断)"

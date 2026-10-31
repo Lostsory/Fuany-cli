@@ -1,32 +1,29 @@
-"""Agent 运行时共享状态。
+"""Agent 运行时上下文状态。
 
-READ_STATE: 每个被读过的文件的「mtime + 内容」快照。write/edit 前比对，
-不一致 → 拒绝 + 喂回让 agent 重读再改。
-
-对照 Claude Code: src/Tool.ts:181 `readFileState: FileStateCache`
-（CC 是 ToolUseContext 字段，per-run 独立；我们暂用全局单例，
-D6 子 agent 时需改为 per-context，是已知技术债）。
-
-双比对(mtime + content fallback) 的理由 (CC 源码 FileWriteTool.ts:283-292)：
-Windows 上 cloud sync / 杀毒软件会触碰 mtime 但不改内容，纯 mtime 比对会
-false positive。我们 macOS 用不到，但保留这个工业级做法。
+每个 agent 的 read_state 保存文件的修改时间和文本 SHA-256 摘要，不保留正文。
+write/edit 在修改时间变化时比较摘要，避免仅触碰 mtime 就误报内容变化。
+调用方决定字典生命周期，ContextVar 负责让工具访问当前 agent 的字典。
 """
 
 from contextvars import ContextVar
 from dataclasses import dataclass
+from hashlib import sha256
 
 
 @dataclass
 class FileSeen:
-    """agent 已经读过的文件的「mtime + 内容」快照。"""
+    """agent 已经读过的文件的修改时间与文本摘要。"""
 
     mtime: float
-    content: str
+    content_hash: str
 
 
-# 把 READ_STATE 从全局 dict → ContextVar。
-# 对照 CC forkedAgent.ts:376-417 createSubagentContext 的 readFileState 隔离:
-# CC 用深拷贝传 context 对象;Python 用 ContextVar 自动栈式隔离,nested set/reset 安全。
+def hash_content(content: str) -> str:
+    """对工具读写的文本计算稳定摘要，保持原来的文本比较语义。"""
+    return sha256(content.encode("utf-8")).hexdigest()
+
+
+# agent 入口显式绑定自己的字典，退出时通过 token 恢复上一层绑定。
 _read_state_var: ContextVar[dict[str, FileSeen]] = ContextVar("read_state")
 
 
