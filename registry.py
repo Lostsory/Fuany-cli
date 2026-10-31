@@ -14,11 +14,14 @@ import sys
 import threading
 from dataclasses import dataclass
 from typing import Callable
+from typing import Literal
 
 from openai.types.chat import ChatCompletionToolUnionParam
 
 from config import AUTO_ALLOW
 from log import log
+
+ToolExposure = Literal["direct", "deferred", "hidden"]
 
 
 @dataclass(frozen=True)
@@ -30,6 +33,8 @@ class Tool:
     parameters  : JSON Schema 的 parameters 块（{"type":"object","properties":...}）
     handler     : 真正干活的函数，**args 解包调用，返回字符串
     read_only   : 是否只读工具（不修改状态，只读取）
+    exposure    : direct 直接挂给 LLM；deferred 经 tool_search 发现后挂；hidden 只注册不暴露
+    search_hint : deferred tool 的检索提示词
     """
 
     name: str
@@ -37,6 +42,8 @@ class Tool:
     parameters: dict[str, object]
     handler: Callable[..., str]
     read_only: bool = False
+    exposure: ToolExposure = "direct"
+    search_hint: str = ""
 
 
 # 模块级单例。import 本模块即存在；各工具模块顶层 @register 往这里灌。
@@ -49,6 +56,8 @@ def register(
     parameters: dict[str, object],
     *,
     read_only: bool = False,
+    exposure: ToolExposure = "direct",
+    search_hint: str = "",
 ):
     """装饰器：把被装饰函数构造成 Tool 塞进 REGISTRY，原函数原样返回。
 
@@ -61,10 +70,42 @@ def register(
         # 没有插件热重载，让错误在import阶段就抛出
         if name in REGISTRY:
             raise ValueError(f"Tool {name} is already registered")
-        REGISTRY[name] = Tool(name, description, parameters, fn, read_only)
+        if exposure not in {"direct", "deferred", "hidden"}:
+            raise ValueError(f"Tool {name} has invalid exposure: {exposure}")
+        REGISTRY[name] = Tool(
+            name,
+            description,
+            parameters,
+            fn,
+            read_only,
+            exposure,
+            search_hint,
+        )
         return fn
 
     return deco
+
+
+def visible_tool_names(
+    discovered: set[str] | None = None,
+    allowed: set[str] | None = None,
+) -> set[str]:
+    """返回本轮应该挂给 LLM 的工具名。
+
+    direct 工具总是可见；deferred 工具只有被 tool_search 发现后可见；
+    hidden 工具永不进入 tools=。allowed 继续作为子 agent 的安全边界。
+    """
+
+    discovered = discovered or set()
+    names = {
+        tool.name
+        for tool in REGISTRY.values()
+        if tool.exposure == "direct"
+        or (tool.exposure == "deferred" and tool.name in discovered)
+    }
+    if allowed is not None:
+        names &= allowed
+    return names
 
 
 def tools_schema(allowed: set[str] | None = None) -> list[ChatCompletionToolUnionParam]:
@@ -85,8 +126,45 @@ def tools_schema(allowed: set[str] | None = None) -> list[ChatCompletionToolUnio
             },
         }
         for v in REGISTRY.values()
-        if allowed is None or v.name in allowed
+        if v.exposure != "hidden" and (allowed is None or v.name in allowed)
     ]
+
+
+def deferred_tool_summaries() -> list[dict[str, str]]:
+    """给 tool_search 用的轻量索引，不包含参数 schema。"""
+
+    return [
+        {
+            "name": tool.name,
+            "description": tool.description,
+            "search_hint": tool.search_hint,
+        }
+        for tool in REGISTRY.values()
+        if tool.exposure == "deferred"
+    ]
+
+
+def search_deferred_tools(query: str, limit: int = 5) -> list[dict[str, str]]:
+    """朴素关键词搜索 deferred tools。
+
+    这里先不用向量/BM25；工具数量小，按 name/description/search_hint 子串计分够用。
+    """
+
+    terms = [term for term in query.lower().replace("_", " ").split() if term]
+    if not terms:
+        return []
+
+    scored: list[tuple[int, dict[str, str]]] = []
+    for item in deferred_tool_summaries():
+        haystack = " ".join(
+            [item["name"].replace("_", " "), item["description"], item["search_hint"]]
+        ).lower()
+        score = sum(1 for term in terms if term in haystack)
+        if score:
+            scored.append((score, item))
+
+    scored.sort(key=lambda pair: (-pair[0], pair[1]["name"]))
+    return [item for _, item in scored[: max(1, min(limit, 20))]]
 
 
 _permission_lock = threading.Lock()

@@ -27,7 +27,7 @@ from openai.types.chat import (
 import tools  # noqa: F401  # import 即触发 tools/ 下所有 @register
 from config import DEFAULT_MAX_TURNS, MAX_PARALLEL, SHOW_THINKING, SYSTEM
 from llm import build_llm
-from registry import call_tool, is_read_only, tools_schema
+from registry import call_tool, is_read_only, tools_schema, visible_tool_names
 from skills import skill_reminder
 from state import FileSeen, reset_depth, reset_read_state, set_depth, set_read_state
 
@@ -154,6 +154,23 @@ def agent_answer(
 
     llm = build_llm()  # 需支持 function calling
     messages.append({"role": "user", "content": question})
+    discovered_tools: set[str] = set()
+
+    def remember_discovered_tools(name: str, result: str) -> None:
+        """tool_search 返回 matches 后,下一轮把这些 deferred tools 加进 tools=。"""
+
+        if name != "tool_search":
+            return
+        try:
+            payload = json.loads(result)
+        except json.JSONDecodeError:
+            return
+        matches = payload.get("matches")
+        if not isinstance(matches, list):
+            return
+        for match in matches:
+            if isinstance(match, str):
+                discovered_tools.add(match)
 
     try:
         # 本轮 token 记账,两套数都要:
@@ -197,10 +214,14 @@ def agent_answer(
                     *messages[1:],
                 ]
             try:
+                visible_names = visible_tool_names(
+                    discovered=discovered_tools,
+                    allowed=allowed,
+                )
                 stream = llm.client.chat.completions.create(
                     model=llm.model,
                     messages=request_messages,
-                    tools=tools_schema(allowed=allowed),
+                    tools=tools_schema(allowed=visible_names),
                     tool_choice="none" if grace_used else "auto",
                     stream=True,
                     stream_options={"include_usage": True},
@@ -365,6 +386,8 @@ def agent_answer(
                             )
                         for tc in batch:
                             result = futures[tc["id"]].result()
+                            name = tc["function"]["name"]
+                            remember_discovered_tools(name, str(result))
                             messages.append(
                                 {
                                     "role": "tool",
@@ -378,6 +401,7 @@ def agent_answer(
                         args = json.loads(tc["function"]["arguments"])
                         out(f"    \033[36m{name}\033[0m({args})")
                         result = call_tool(name, args)
+                        remember_discovered_tools(name, str(result))
                         messages.append(
                             {
                                 "role": "tool",

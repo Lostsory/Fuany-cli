@@ -15,5 +15,6 @@ from . import (
     shell,
     skill,
     task,
+    tool_search,
     web,
 )

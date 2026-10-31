@@ -26,6 +26,8 @@ _url_cache = TTLCache(ttl=CACHE_TTL, max_bytes=CACHE_MAX_BYTES)
         "required": ["query"],
     },
     read_only=True,
+    exposure="deferred",
+    search_hint="web search internet latest docs news brave",
 )
 def web_search(query: str, limit: int = 5) -> str:
     if not BRAVE_SEARCH_API_KEY:
@@ -79,6 +81,8 @@ def web_search(query: str, limit: int = 5) -> str:
         "required": ["url", "prompt"],
     },
     read_only=True,
+    exposure="deferred",
+    search_hint="web fetch url page markdown html summarize",
 )
 def web_fetch(url: str, prompt: str, offset: int = 0) -> str:
     # 查缓存(对照 CC URL_CACHE;命中则不重抓 —— 翻页/重复 fetch 都受益)

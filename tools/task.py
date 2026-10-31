@@ -46,6 +46,8 @@ from state import get_depth
         "required": ["description", "prompt"],
     },
     read_only=True,
+    exposure="deferred",
+    search_hint="spawn subagent delegate task agent research parallel analysis",
 )
 def task(description: str, prompt: str) -> str:
     """spawn 子 agent 执行委派任务,返回 final content。
