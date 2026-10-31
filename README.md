@@ -94,7 +94,7 @@ agent_answer()  ── 核心循环(对照 CC src/query.ts queryLoop)
 | `registry.py` | 工具注册表(一处声明,schema 与派发都从此派生)+ 权限门 |
 | `config.py` | 所有 env 读取的单一入口(fail-loud + 类型化常量) |
 | `llm.py` | LLM 构造(client + model + context_window 捆绑,一处切 provider) |
-| `state.py` | per-agent 文件读状态(ContextVar 栈式隔离) |
+| `state.py` | per-agent 文件读取记录（mtime + SHA-256 摘要），通过 ContextVar 访问 |
 | `tools/` | 工具实现,`import tools` 即触发自动注册 |
 | `demos/` | 概念教学 demo(如 `contextvar_demo.py` 演示父子状态隔离) |
 
@@ -107,7 +107,7 @@ agent_answer()  ── 核心循环(对照 CC src/query.ts queryLoop)
 | 特性 | 实现 | 对照源码 |
 |---|---|---|
 | 工具注册表(声明=派生) | `registry.py` `@register` | CC `Tool.ts` · Hermes `tools/registry.py`(注册≠暴露) |
-| mod-time 守卫(防外部偷改) | `tools/files.py` write/edit | CC `FileWriteTool.ts`(mtime + content 双比对) |
+| mod-time 守卫(防外部偷改) | `tools/files.py` write/edit：mtime + SHA-256 摘要 | 参考 CC `FileWriteTool.ts` 的 mtime + 内容双比对；本项目用摘要替代正文存储 |
 | 权限门 → 拒绝回喂自纠 | `registry.py` `_ask_permission` | CC `canUseTool` 权限系统 |
 | 流式打字机 + reasoning round-trip | `mini_cc.py` chunk 累积 | DeepSeek thinking-mode 契约(reasoning_content 必须回传) |
 | token 二维记账(billed vs context) | `mini_cc.py` `_finish` | 揭示无 prompt-cache 时 history 被重复计费 |
@@ -129,6 +129,8 @@ agent_answer()  ── 核心循环(对照 CC src/query.ts queryLoop)
 `task` 工具 spawn 一个独立子 agent 执行委派任务,体现完整的 agent 系统设计:
 
 - **三大独立性**:子有自己的对话历史(空白起步)、独立的文件读状态(ContextVar 栈式隔离)、独立的迭代预算。
+- **文件记录与内存**：`read_state` 按路径保存修改时间和文本的 SHA-256 摘要，不保留文件正文。重复读取同一路径会覆盖记录；暂不设置 LRU 或数量上限，读取不同路径仍会增加内存占用。写入或编辑前，若修改时间变化，再比较摘要；内容变化则要求重新读取，只有时间变化则允许继续。
+- **状态生命周期**：`agent_answer()` 在 `finally` 中恢复上一层 read_state 与 depth 绑定，并在子 agent（`depth > 0`）正常结束或异常退出时清空自己的记录。CLI 默认每轮创建新字典；Web 主 agent 复用会话字典，供后续轮次使用。此优化只减少 read_state 的正文存储，不减少消息历史中的工具返回文本。
 - **工具子集**:子看不到 `task` 工具本身,叠加 depth 守卫防递归 spawn 失控。
 - **递归 + 深度限制**:允许子 spawn 孙(层级化任务分解),`MAX_SUBAGENT_DEPTH` 守卫撞顶时返回错误,模型收到后自我纠错。
 - **并发调度**:同一轮的多个 read-only 工具(含 `task`)按 partition 自动并行(ThreadPoolExecutor),写工具串行 —— 自动避开"并发权限门竞争"和"写冲突 race"。
