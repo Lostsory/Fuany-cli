@@ -7,3 +7,6 @@ __pycache__/
 mini_cc.log
 demo/
 skills/
+node_modules/
+frontend/dist/
+*.tsbuildinfo

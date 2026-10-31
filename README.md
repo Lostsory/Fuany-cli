@@ -38,6 +38,34 @@ uv run python mini_cc.py
 
 ---
 
+## Web 界面
+
+在现有 CLI 之外，提供 React + TypeScript + Vite + 原生 CSS 前端与 FastAPI 后端，复用同一个 Agent 循环及工具系统。支持流式聊天、多轮会话、Markdown、工具执行记录，以及网页工具授权。
+
+```bash
+# 在项目根目录安装后端依赖
+uv sync
+
+# 安装并构建前端
+cd frontend
+npm ci
+npm run build
+cd ..
+
+# 启动前后端服务
+uv run fuany-web
+```
+
+打开 **http://127.0.0.1:8000**。模型凭证继续使用根目录 `.env` 中的 `DEEPSEEK_API_KEY`。
+
+开发时分别运行 `uv run uvicorn server:app --host 127.0.0.1 --port 8000 --reload` 和 `cd frontend && npm run dev`，然后访问 http://127.0.0.1:5173。
+
+会话保存在后端内存中，刷新网页后可恢复，重启后端后清空；请使用单个服务进程。网页中的文件操作基于后端启动目录执行，写文件和 shell 命令需逐次授权。关闭网页会中断后续生成，已经完成的工具操作不会撤销。
+
+验证：`uv run pytest -q`、`uv run ruff check server.py mini_cc.py registry.py tests`、`cd frontend && npm run build && npm run lint`。更多说明见 [frontend/README.md](frontend/README.md)。
+
+---
+
 ## 架构
 
 ```

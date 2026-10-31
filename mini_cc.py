@@ -16,7 +16,7 @@ import readline  # noqa: F401  # 副作用导入：给 input() 接上 line-editi
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context
 from dataclasses import dataclass
-from typing import Literal, cast
+from typing import cast
 
 import openai
 from openai.types.chat import (
@@ -26,6 +26,7 @@ from openai.types.chat import (
 
 import tools  # noqa: F401  # import 即触发 tools/ 下所有 @register
 from config import DEFAULT_MAX_TURNS, MAX_PARALLEL, SHOW_THINKING, SYSTEM
+from events import AgentEvent, EventHandler, TerminalReason
 from llm import build_llm
 from registry import call_tool, is_read_only, tools_schema, visible_tool_names
 from skills import skill_reminder
@@ -65,7 +66,7 @@ class TurnTerminal:
     grace_used   : 撞顶前是否注入了 wrap-up 提醒(Hermes grace call 机制)
     """
 
-    reason: Literal["completed", "max_turns", "prompt_too_long"]
+    reason: TerminalReason
     content: str = ""
     turn_count: int = 0
     limit_tokens: int | None = None
@@ -142,6 +143,7 @@ def agent_answer(
     quiet: bool = False,
     allowed: set[str] | None = None,
     depth: int = 0,
+    on_event: EventHandler | None = None,
 ) -> TurnTerminal:
     """agent 循环：调模型 ↔ 跑工具，多轮直到模型不再要工具。"""
     # read_state 切换 + 出函数自动恢复(对照 CC forkedAgent.ts:376 状态隔离)
@@ -152,7 +154,10 @@ def agent_answer(
 
     out = (lambda *args, **kwargs: None) if quiet else print
 
-    llm = build_llm()  # 需支持 function calling
+    def emit(event: AgentEvent) -> None:
+        if on_event is not None:
+            on_event(event)
+
     messages.append({"role": "user", "content": question})
     discovered_tools: set[str] = set()
 
@@ -173,6 +178,7 @@ def agent_answer(
                 discovered_tools.add(match)
 
     try:
+        llm = build_llm()  # 需支持 function calling
         # 本轮 token 记账,两套数都要:
         #   billed_*  = 跨 turn 累加,**= 这一轮被计费的总额**。
         #               注意 multi-turn 时每个 turn 的 prompt 都全额包含 history,
@@ -253,6 +259,7 @@ def agent_answer(
                         reasoning_parts.append(reasoning)
 
                     if delta.content:
+                        emit({"type": "delta", "content": delta.content})
                         if (
                             not content_parts
                         ):  # content 第一次 → 打 [回答](独立于思考显不显示)
@@ -380,6 +387,14 @@ def agent_answer(
                             name = tc["function"]["name"]
                             args = json.loads(tc["function"]["arguments"])
                             out(f"    \033[36m{name}\033[0m({args})")
+                            emit(
+                                {
+                                    "type": "tool_start",
+                                    "id": tc["id"],
+                                    "name": name,
+                                    "args": args,
+                                }
+                            )
                             ctx = copy_context()
                             futures[tc["id"]] = executor.submit(
                                 ctx.run, call_tool, name, args
@@ -387,6 +402,14 @@ def agent_answer(
                         for tc in batch:
                             result = futures[tc["id"]].result()
                             name = tc["function"]["name"]
+                            emit(
+                                {
+                                    "type": "tool_end",
+                                    "id": tc["id"],
+                                    "name": name,
+                                    "result": str(result),
+                                }
+                            )
                             remember_discovered_tools(name, str(result))
                             messages.append(
                                 {
@@ -400,7 +423,23 @@ def agent_answer(
                         name = tc["function"]["name"]
                         args = json.loads(tc["function"]["arguments"])
                         out(f"    \033[36m{name}\033[0m({args})")
+                        emit(
+                            {
+                                "type": "tool_start",
+                                "id": tc["id"],
+                                "name": name,
+                                "args": args,
+                            }
+                        )
                         result = call_tool(name, args)
+                        emit(
+                            {
+                                "type": "tool_end",
+                                "id": tc["id"],
+                                "name": name,
+                                "result": str(result),
+                            }
+                        )
                         remember_discovered_tools(name, str(result))
                         messages.append(
                             {

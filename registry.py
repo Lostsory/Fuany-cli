@@ -12,6 +12,7 @@
 
 import sys
 import threading
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Callable
 from typing import Literal
@@ -22,6 +23,9 @@ from config import AUTO_ALLOW
 from log import log
 
 ToolExposure = Literal["direct", "deferred", "hidden"]
+permission_handler: ContextVar[Callable[[str, dict], bool] | None] = ContextVar(
+    "permission_handler", default=None
+)
 
 
 @dataclass(frozen=True)
@@ -185,6 +189,9 @@ def _ask_permission(name: str, args: dict) -> bool:
     buffer 住,下一个 input() 直接消费,造成"按 y 没反应"的同步错位。
     清空后,必须在看到 [需确认] 之后按的 y 才算数。
     """
+    handler = permission_handler.get()
+    if handler is not None:
+        return handler(name, args)
     if AUTO_ALLOW:
         return True
 

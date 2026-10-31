@@ -5,14 +5,17 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "fastapi>=0.162.0",
     "httpx>=0.28.1",
     "markdownify>=1.2.2",
     "openai>=2.37.0",
     "python-dotenv>=1.2.2",
+    "uvicorn[standard]>=0.54.0",
 ]
 
 [project.scripts]
 fuany = "mini_cc:main"
+fuany-web = "server:main"
 
 [build-system]
 requires = ["setuptools>=61"]
@@ -22,10 +25,12 @@ build-backend = "setuptools.build_meta"
 py-modules = [
     "cache",
     "config",
+    "events",
     "llm",
     "log",
     "mini_cc",
     "registry",
+    "server",
     "skills",
     "state",
 ]
@@ -34,5 +39,6 @@ packages = ["tools"]
 [dependency-groups]
 dev = [
     "basedpyright>=1.39.6",
+    "pytest>=9.2.0",
     "ruff>=0.15.16",
 ]
