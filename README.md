@@ -1,10 +1,12 @@
-# mini-claude-code
+# Fuany CLI
+
+原 mini-claude-code，提供 `fuany` 命令行和本地 Web 界面。
 
 一个**不依赖任何 agent 框架**(LangChain / LlamaIndex 等)、纯 Python 裸写的最小可用 coding agent。核心循环自己拥有,逐特性对照 [Claude Code](https://claude.com/claude-code) 与 Hermes(Nous Research)真实源码实现,并**诚实标注哪些故意没做**。
 
 > 不是克隆,是"读真源码 → 理解每个特性为什么这么设计 → 用最小代码忠实复刻 → 想清楚哪些该简化、哪些该砍"。每个特性都能讲清它在 CC/Hermes 源码的哪里、我为什么这么简化。
 
-后端用 DeepSeek(OpenAI 兼容协议),换 provider 只改一行。
+默认使用 DeepSeek（OpenAI 兼容协议）。可在 `llm.py` 的 `PROVIDER` 切换到已配置的 Ollama；新增 provider 还需补充对应接入配置。
 
 ---
 
@@ -17,16 +19,20 @@
 ## 快速开始
 
 ```bash
-# 1. 配置 API key
-echo "DEEPSEEK_API_KEY=sk-..." > .env
+# 1. 安装依赖（Python 3.13+，使用 uv）
+uv sync
 
-# 2. 跑(交互式 REPL)
-uv run python mini_cc.py
+# 2. 首次配置：复制模板，在 .env 中填写真实 API key
+cp .env.example .env
+
+# 3. 启动交互式 REPL
+uv run fuany
+# 也可直接运行：uv run python mini_cc.py
 ```
 
 进入后像 `claude` 一样多轮对话。`exit` / `quit` / Ctrl-D 退出。
 
-可选环境变量(均有默认值,见 `config.py`):
+环境变量（集中在 `config.py` 读取；修改后需重启进程）：
 
 | 变量 | 默认 | 作用 |
 |---|---|---|
@@ -34,7 +40,11 @@ uv run python mini_cc.py
 | `MINI_CC_MAX_TURNS` | 90 | 父 agent 单轮最大迭代数 |
 | `MINI_CC_MAX_TURNS_SUBAGENT` | 50 | 子 agent 最大迭代数 |
 | `MINI_CC_MAX_SUBAGENT_DEPTH` | 2 | 子 agent 最大递归深度 |
-| `MINI_CC_MAX_PARALLEL` | 10 | read-only 工具并行最大并发 |
+| `MINI_CC_MAX_PARALLEL` | 10 | 每个并行工具批次的最大线程数，不是跨所有 agent 的全局上限 |
+| `MINI_CC_BRAVE_SEARCH_API_KEY` | 未设置 | Brave 搜索凭证；未配置时 `web_search` 返回提示 |
+| `MINI_CC_SKILL_DIR` | `skills` | 本地 skill 扫描目录 |
+| `MINI_CC_SHOW_THINKING` | false | 是否在 CLI 显示 reasoning，不影响生成和历史回传 |
+| `MINI_CC_AUTO_ALLOW` | false | CLI 测试时跳过权限确认；设为 `1` / `true` / `yes` 开启。Web 授权处理器优先，仍逐次确认 |
 
 ---
 
@@ -78,14 +88,16 @@ agent_answer()  ── 核心循环(对照 CC src/query.ts queryLoop)
    │
    ├─ 流式打字机输出 + DeepSeek reasoning round-trip
    ├─ token 二维记账(billed 计费 vs context 占用)
-   ├─ grace call(撞顶前一轮提醒模型收尾)
+   ├─ grace call(最后一次迭代提醒收尾，并设置 tool_choice="none")
    └─ 工具派发
          │
          ▼
-   registry.call_tool()  ── 权限门 + mod-time 守卫 + 防御性派发
+   registry.call_tool()  ── 权限门 + 未知工具/参数错误处理 + 派发
          │
          ▼
-   tools/  ── read_file / grep / glob / write / edit / bash / task
+   tools/  ── read_file / grep / glob / write / edit / bash
+             tool_search / task / load_skill / web_search / web_fetch
+             （文件修改检查在 write/edit 内执行）
 ```
 
 | 模块 | 职责 |
@@ -96,7 +108,10 @@ agent_answer()  ── 核心循环(对照 CC src/query.ts queryLoop)
 | `llm.py` | LLM 构造(client + model + context_window 捆绑,一处切 provider) |
 | `state.py` | per-agent 文件读取记录（mtime + SHA-256 摘要），通过 ContextVar 访问 |
 | `tools/` | 工具实现,`import tools` 即触发自动注册 |
-| `demos/` | 概念教学 demo(如 `contextvar_demo.py` 演示父子状态隔离) |
+| `server.py` | FastAPI 会话、SSE 流式事件、网页授权和前端静态文件服务 |
+| `events.py` | Python 端事件类型；前端对应 `frontend/src/events.ts` |
+| `frontend/` | React + TypeScript + Vite 本地 Web 界面 |
+| `tests/` | agent 事件、Web API、文件摘要守卫与状态清理测试 |
 
 ---
 
@@ -115,14 +130,18 @@ agent_answer()  ── 核心循环(对照 CC src/query.ts queryLoop)
 | grace call(撞顶前收尾) | `mini_cc.py` turn loop | Hermes `conversation_loop` budget grace call |
 | 子 agent 委派 | `tools/task.py` | CC `AgentTool` · Hermes `delegate_tool.py` |
 | 子状态隔离(ContextVar) | `state.py` | CC `forkedAgent.ts` `createSubagentContext` |
-| 工具子集过滤(防递归) | `registry.py` `tools_schema(allowed=)` | Hermes `DELEGATE_BLOCKED_TOOLS` |
+| 工具 schema 子集过滤 | `registry.py` `visible_tool_names` / `tools_schema(allowed=)`；默认子 agent 禁用集合为空 | 参考 Hermes `DELEGATE_BLOCKED_TOOLS`；递归由 depth 守卫控制 |
 | 递归 depth limit | `tools/task.py` | Hermes `delegate_tool.py` `max_spawn_depth` |
 | partition 并发调度 | `mini_cc.py` `_partition_tool_calls` | CC `toolOrchestration.ts` partitionToolCalls |
 | skill 渐进披露 | `skills.py` + `tools/skill.py` | CC `loadSkillsDir.ts` · `SkillTool.ts`(listing 进 prompt + 全文按需 load) |
 | web_search | `tools/web.py` | Brave API(CC WebSearch 是 Anthropic server-tool,DeepSeek 走客户端调 API) |
-| web_fetch(抓取+提炼+LRU 缓存+分页) | `tools/web.py` + `cache.py` | CC `WebFetchTool`(**改进**:CC 截断后无读取手段,加 offset 翻页补救) |
+| web_fetch（抓取、提炼、字符 offset 分页） | `tools/web.py` | 参考 CC `WebFetchTool`；本项目提供 offset 继续读取 |
 
 ---
+
+工具采用渐进暴露：`read_file`、`grep`、`glob`、`write`、`edit`、`bash`、`load_skill`、`tool_search` 默认可见；`task`、`web_search`、`web_fetch` 需先经 `tool_search` 发现，下一次模型请求才加载完整 schema。已发现工具只保留在本次 `agent_answer()` 调用中。schema 过滤不是执行沙箱，`call_tool()` 目前不接收 `allowed` 做二次校验。
+
+`cache.py` 已提供 TTL + LRU 字符串缓存，`web_fetch` 也会查询它，但当前抓取成功后未调用缓存写入，因此正常调用不会复用抓取结果；翻页会重新请求网页。这里不将缓存复用列为已实现能力。
 
 ## 子 agent 设计(亮点)
 
@@ -131,9 +150,9 @@ agent_answer()  ── 核心循环(对照 CC src/query.ts queryLoop)
 - **三大独立性**:子有自己的对话历史(空白起步)、独立的文件读状态(ContextVar 栈式隔离)、独立的迭代预算。
 - **文件记录与内存**：`read_state` 按路径保存修改时间和文本的 SHA-256 摘要，不保留文件正文。重复读取同一路径会覆盖记录；暂不设置 LRU 或数量上限，读取不同路径仍会增加内存占用。写入或编辑前，若修改时间变化，再比较摘要；内容变化则要求重新读取，只有时间变化则允许继续。
 - **状态生命周期**：`agent_answer()` 在 `finally` 中恢复上一层 read_state 与 depth 绑定，并在子 agent（`depth > 0`）正常结束或异常退出时清空自己的记录。CLI 默认每轮创建新字典；Web 主 agent 复用会话字典，供后续轮次使用。此优化只减少 read_state 的正文存储，不减少消息历史中的工具返回文本。
-- **工具子集**:子看不到 `task` 工具本身,叠加 depth 守卫防递归 spawn 失控。
+- **工具范围**：子 agent 的候选工具为注册表减去 `SUBAGENT_BLOCKED`，当前该集合为空。子 agent 同样先通过 `tool_search` 发现 `task` 等 deferred 工具，再进行调用。
 - **递归 + 深度限制**:允许子 spawn 孙(层级化任务分解),`MAX_SUBAGENT_DEPTH` 守卫撞顶时返回错误,模型收到后自我纠错。
-- **并发调度**:同一轮的多个 read-only 工具(含 `task`)按 partition 自动并行(ThreadPoolExecutor),写工具串行 —— 自动避开"并发权限门竞争"和"写冲突 race"。
+- **并发调度**：单个 agent 内，连续的 read-only 工具（含 `task`）按批次使用 ThreadPoolExecutor 并行，非只读工具串行。线程提交时用 `copy_context()` 传播上下文。不同子 agent 仍可能同时写同一文件；当前没有跨 agent 的文件锁，文件修改检查也不是原子操作。
 - **权限下放**:`task` 本身不弹权限门(对照 CC `AgentTool.isReadOnly=true`),真正的副作用(子内部的 write/bash)各自弹权限确认。
 
 ---
@@ -143,10 +162,10 @@ agent_answer()  ── 核心循环(对照 CC src/query.ts queryLoop)
 为保持"最小可用"且不被无关复杂度拖死,以下明确不做:
 
 - **MCP**(真协议,最重,这类玩具项目十有八九死在这里)
-- **真上下文压缩 / microcompact**(1M context 窗口下当前用不到)
+- **上下文压缩 / microcompact**：当前未实现；上下文超限时返回终止结果，不自动压缩或续跑。窗口大小以 `llm.py` 的 provider 配置为准。
 - **skill 自改进(Hermes Curator)** —— agent 给自己写 skill + 后台合并;体量是 skill 本身 5-10 倍,留作独立项目
 - **TUI**(Ink 等富终端)/ **插件系统**
-- **多 provider gateway · cron · kanban · profile 隔离 · 会话持久化**
+- **多 provider gateway · cron · kanban · profile 隔离 · 会话磁盘持久化（Web 会话目前仅存内存）**
 
 > 注:skill **渐进披露**已实现(见上方特性表);不做的是 Hermes 式 **Curator 自改进**(那是另一个量级)。
 
@@ -156,4 +175,4 @@ agent_answer()  ── 核心循环(对照 CC src/query.ts queryLoop)
 
 ## 栈
 
-Python 3.13 · DeepSeek(`openai` SDK,OpenAI 兼容协议)· `python-dotenv` · 标准库 `contextvars` / `concurrent.futures` · **无 agent 框架**
+Python 3.13+ · DeepSeek / Ollama（`openai` SDK）· FastAPI / Uvicorn · React / TypeScript / Vite · `httpx` / `markdownify` / `python-dotenv` · 标准库 `contextvars` / `concurrent.futures` · **无 agent 框架**
