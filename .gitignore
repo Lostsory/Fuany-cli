@@ -1,4 +1,6 @@
 .env
+.env.*
+!.env.example
 .venv/
 __pycache__/
 *.pyc
@@ -10,3 +12,4 @@ skills/
 node_modules/
 frontend/dist/
 *.tsbuildinfo
+.deployment/

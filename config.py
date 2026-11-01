@@ -16,8 +16,17 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
 # === Provider 凭证 ===
 DEEPSEEK_API_KEY: Final[str | None] = os.getenv("DEEPSEEK_API_KEY")
+
+FRONTEND_DIST: Final[Path] = Path(
+    os.getenv("MINI_CC_FRONTEND_DIST", str(Path(__file__).parent / "frontend" / "dist"))
+)
+"""静态资源可独立于已安装的 Python 模块存放，因此允许覆盖路径。"""
+
+LOG_STDOUT: Final[bool] = os.getenv("MINI_CC_LOG_STDOUT", "false").lower() == "true"
+LOG_PAYLOADS: Final[bool] = os.getenv("MINI_CC_LOG_PAYLOADS", "true").lower() == "true"
 
 
 # === Agent 行为 ===

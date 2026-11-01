@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from openai.types.chat import ChatCompletionMessageParam
 from pydantic import BaseModel, Field
 
-from config import DEEPSEEK_API_KEY, SYSTEM
+from config import DEEPSEEK_API_KEY, FRONTEND_DIST, SYSTEM
 from events import SessionEvent
 from llm import PROVIDER, _CONFIG
 from mini_cc import agent_answer
@@ -266,7 +266,7 @@ async def chat(session_id: str, body: ChatRequest):
 
 
 # Build frontend first to serve the full app from http://127.0.0.1:8000.
-frontend_dist = Path(__file__).parent / "frontend" / "dist"
+frontend_dist = FRONTEND_DIST
 if frontend_dist.is_dir():
     app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
 

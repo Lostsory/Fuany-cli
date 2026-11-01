@@ -1,12 +1,31 @@
 # Fuany CLI
 
-原 mini-claude-code，提供 `fuany` 命令行和本地 Web 界面。
+原 mini-claude-code，提供 `fuany` 命令行与黑白极简风格的本地 Web 工作空间。两种入口共用同一个 Agent 循环和工具系统。
 
 一个**不依赖任何 agent 框架**(LangChain / LlamaIndex 等)、纯 Python 裸写的最小可用 coding agent。核心循环自己拥有,逐特性对照 [Claude Code](https://claude.com/claude-code) 与 Hermes(Nous Research)真实源码实现,并**诚实标注哪些故意没做**。
 
 > 不是克隆,是"读真源码 → 理解每个特性为什么这么设计 → 用最小代码忠实复刻 → 想清楚哪些该简化、哪些该砍"。每个特性都能讲清它在 CC/Hermes 源码的哪里、我为什么这么简化。
 
 默认使用 DeepSeek（OpenAI 兼容协议）。可在 `llm.py` 的 `PROVIDER` 切换到已配置的 Ollama；新增 provider 还需补充对应接入配置。
+
+---
+
+## 使用方式与界面
+
+| 入口 | 启动命令 | 使用方式 |
+|---|---|---|
+| CLI | `uv run fuany` | 在终端中多轮对话、查看流式输出并确认工具操作 |
+| Web | `uv run fuany-web` | 在浏览器中聊天、切换会话、展开工具记录并处理授权；首次使用需先构建前端 |
+
+Web 界面包含：
+
+- **欢迎页**：提供读懂项目、编写代码、排查问题、探索知识四个提示卡片，点击后填入输入框，由你确认发送。
+- **聊天工作区**：实时显示回答，支持 Markdown、代码块、列表和表格；工具调用可展开查看参数及返回内容。
+- **会话侧栏**：新建对话、查看最近对话、切换会话；执行期间禁用切换与重复发送。
+- **授权弹窗**：写文件、执行命令等操作逐次确认，展示工具名称和参数，可允许或拒绝。
+- **响应式布局**：桌面展示会话侧栏，窄屏通过菜单按钮展开；使用原生 CSS，不依赖 Tailwind。
+
+首次使用 CLI 见[快速开始](#快速开始)，浏览器使用与前端开发见 [Web 界面](#web-界面)。
 
 ---
 
@@ -45,16 +64,26 @@ uv run fuany
 | `MINI_CC_SKILL_DIR` | `skills` | 本地 skill 扫描目录 |
 | `MINI_CC_SHOW_THINKING` | false | 是否在 CLI 显示 reasoning，不影响生成和历史回传 |
 | `MINI_CC_AUTO_ALLOW` | false | CLI 测试时跳过权限确认；设为 `1` / `true` / `yes` 开启。Web 授权处理器优先，仍逐次确认 |
+| `MINI_CC_FRONTEND_DIST` | 模块目录下的 `frontend/dist` | 覆盖 Web 静态资源目录 |
+| `MINI_CC_LOG_STDOUT` | false | 设为 `true` 时工具日志输出到标准输出，否则追加到 `mini_cc.log` |
+| `MINI_CC_LOG_PAYLOADS` | true | 设为 `false` 时不记录工具参数及返回正文 |
 
 ---
 
 ## Web 界面
 
-在现有 CLI 之外，提供 React + TypeScript + Vite + 原生 CSS 前端与 FastAPI 后端，复用同一个 Agent 循环及工具系统。支持流式聊天、多轮会话、Markdown、工具执行记录，以及网页工具授权。
+前端使用 React + TypeScript + Vite + 原生 CSS，后端使用 FastAPI。浏览器通过 SSE 接收文本和工具事件；模型凭证仅由后端读取。
+
+### 首次启动
+
+准备 Python 3.13+、uv 和 Node.js（本项目已使用 Node.js 24 验证）。在项目根目录执行：
 
 ```bash
-# 在项目根目录安装后端依赖
 uv sync
+
+# 首次配置；已有 .env 时直接编辑，不要覆盖
+cp .env.example .env
+# 在 .env 中填写 DEEPSEEK_API_KEY
 
 # 安装并构建前端
 cd frontend
@@ -62,24 +91,69 @@ npm ci
 npm run build
 cd ..
 
-# 启动前后端服务
+# 启动 Web 界面与 API
 uv run fuany-web
 ```
 
-打开 **http://127.0.0.1:8000**。模型凭证继续使用根目录 `.env` 中的 `DEEPSEEK_API_KEY`。
+打开 **http://127.0.0.1:8000**。服务启动时会检测前端构建目录，因此应先构建、再启动后端。`fuany-web` 不会自动执行前端构建。
 
-开发时分别运行 `uv run uvicorn server:app --host 127.0.0.1 --port 8000 --reload` 和 `cd frontend && npm run dev`，然后访问 http://127.0.0.1:5173。
+### 页面操作
 
-会话保存在后端内存中，刷新网页后可恢复，重启后端后清空；请使用单个服务进程。网页中的文件操作基于后端启动目录执行，写文件和 shell 命令需逐次授权。关闭网页会中断后续生成，已经完成的工具操作不会撤销。
+| 操作 | 方法 |
+|---|---|
+| 发送消息 | Enter 或发送按钮 |
+| 输入多行 | Shift + Enter；中文输入法组合输入不会触发发送 |
+| 新建对话 | 点击侧栏按钮，或 Cmd/Ctrl + K |
+| 恢复对话 | 从左侧最近对话列表选择；刷新后也可重新打开 |
+| 查看工具调用 | 展开工具卡片，查看参数与返回文本；“已返回”不保证操作成功 |
+| 处理授权 | 在弹窗中允许本次操作或拒绝；5 分钟未处理自动拒绝 |
+| 窄屏侧栏 | 点击顶部菜单按钮展开，点击遮罩关闭 |
 
-验证：`uv run pytest -q`、`uv run ruff check server.py mini_cc.py registry.py tests`、`cd frontend && npm run build && npm run lint`。更多说明见 [frontend/README.md](frontend/README.md)。
+### 前端开发
+
+使用两个终端，命令均从项目根目录开始：
+
+```bash
+# 终端一：后端
+uv run uvicorn server:app --host 127.0.0.1 --port 8000 --reload
+```
+
+```bash
+# 终端二：前端
+cd frontend
+npm ci
+npm run dev
+```
+
+打开 **http://127.0.0.1:5173**。Vite 将 `/api` 请求代理给后端，前端修改可热更新。
+
+### 当前边界
+
+- 会话和消息保存在后端内存中，刷新网页后可从侧栏恢复，**重启后端后清空**。没有数据库，也未实现会话导出或删除。
+- 使用单个服务进程；当前没有跨进程共享会话、用户账号或多用户数据隔离。
+- 工具操作基于后端启动时的工作目录执行；写文件和 shell 命令需逐次授权。
+- 关闭网页会中断后续生成，正在执行的工具仍可能完成，已执行的操作不会撤销。
+- 页面展示当前模型名称，暂不支持在界面上切换模型或设置 API Key。
+- 默认加载项目 `.env`，也可由外部设置进程环境变量；不会根据文件名自动切换到 `.env.prod`。
+
+### 验证
+
+```bash
+uv run pytest -q
+uv run ruff check server.py mini_cc.py registry.py config.py log.py tests
+cd frontend
+npm run build
+npm run lint
+```
+
+更多前端说明见 [frontend/README.md](frontend/README.md)。
 
 ---
 
 ## 架构
 
 ```
-用户输入
+CLI 输入（fuany）或 Web 消息（fuany-web → server.py）
    │
    ▼
 agent_answer()  ── 核心循环(对照 CC src/query.ts queryLoop)
